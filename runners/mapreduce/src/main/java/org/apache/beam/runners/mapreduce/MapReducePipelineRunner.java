@@ -18,6 +18,13 @@
 
 package org.apache.beam.runners.mapreduce;
 
+import com.google.cloud.dataflow.sdk.PipelineResult;
+import com.google.cloud.dataflow.sdk.options.PipelineOptions;
+import com.google.cloud.dataflow.sdk.options.PipelineOptionsValidator;
+import com.google.cloud.dataflow.sdk.runners.PipelineRunner;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * The MapReducePipelineRunner translates operations defined on a pipeline to a representation
  * executable by MapReduce, and then submitting the job to MapReduce to be executed.
@@ -34,7 +41,32 @@ package org.apache.beam.runners.mapreduce;
  *  EvaluationResult result = MapReducPipelineRunner.create(options).run(p);
  * }
  */
-public final class MapReducePipelineRunner extends PipelineRunner<EvaluationResult> {
+public final class MapReducePipelineRunner extends PipelineRunner<MapReduceRunnerResult> {
+
+  private static final Logger LOG = LoggerFactory.getLogger(MapReducePipelineRunner.class);
+
+  /**
+   * Options used in this pipeline runner.
+   */
+  private final MapReducePipelineOptions options;
+
+  public static MapReducePipelineRunner create() {
+    MapReducePipelineOptions options = MapReducePipelineOptionsFactory.create();
+    return new MapReducePipelineRunner(options);
+  }
+
+  public static MapReducePipelineRunner create(MapReducePipelineOptions options) {
+    return new MapReducePipelineRunner(options);
+  }
+
+  public static MapReducePipelineRunner fromOptions(PipelineOptions options) {
+    MapReducePipelineOptions mrOptions = PipelineOptionsValidator.validate(MapReducePipelineOptions.class, options);
+    return new MapReducePipelineRunner(mrOptions);
+  }
+
+  private MapReducePipelineRunner(MapReducePipelineOptions options) {
+    this.options = options;
+  }
 
 
 
