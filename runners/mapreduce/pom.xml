@@ -24,7 +24,7 @@
   <parent>
     <groupId>org.apache.beam</groupId>
     <artifactId>runners-parent</artifactId>
-    <version>0.1.0-incubating-SNAPSHOT</version>
+    <version>0.3.0-incubating-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -36,8 +36,7 @@
   <dependencies>
     <dependency>
       <groupId>org.apache.beam</groupId>
-      <artifactId>java-sdk-all</artifactId>
-      <version>0.1.0-incubating-SNAPSHOT</version>
+      <artifactId>beam-sdks-java-core</artifactId>
     </dependency>
   </dependencies>
 
