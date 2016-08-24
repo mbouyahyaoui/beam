@@ -48,6 +48,9 @@ import org.mockito.Mockito;
  */
 public class PipelineOptionsTest {
 
+  /**
+   * Pipeline options.
+   */
   public interface MyOptions extends FlinkPipelineOptions {
     @Description("Bla bla bla")
     @Default.String("Hello")
@@ -55,10 +58,10 @@ public class PipelineOptionsTest {
     void setTestOption(String value);
   }
 
-  private static MyOptions options;
-  private static SerializedPipelineOptions serializedOptions;
+  static MyOptions options;
+  static SerializedPipelineOptions serializedOptions;
 
-  private final static String[] args = new String[]{"--testOption=nothing"};
+  private static final String[] args = new String[]{"--testOption=nothing"};
 
   @BeforeClass
   public static void beforeTest() {
@@ -74,7 +77,8 @@ public class PipelineOptionsTest {
 
   @Test
   public void testCaching() {
-    PipelineOptions deserializedOptions = serializedOptions.getPipelineOptions().as(PipelineOptions.class);
+    PipelineOptions deserializedOptions =
+        serializedOptions.getPipelineOptions().as(PipelineOptions.class);
     assertNotNull(deserializedOptions);
     assertTrue(deserializedOptions == serializedOptions.getPipelineOptions());
     assertTrue(deserializedOptions == serializedOptions.getPipelineOptions());
@@ -87,15 +91,15 @@ public class PipelineOptionsTest {
   }
 
   @Test(expected = Exception.class)
-  public void ParDoBaseClassPipelineOptionsNullTest() {
+  public void parDoBaseClassPipelineOptionsNullTest() {
     new TestParDoWrapper(null, WindowingStrategy.globalDefault(), new TestDoFn());
   }
 
   /**
-   * Tests that PipelineOptions are present after serialization
+   * Tests that PipelineOptions are present after serialization.
    */
   @Test
-  public void ParDoBaseClassPipelineOptionsSerializationTest() throws Exception {
+  public void parDoBaseClassPipelineOptionsSerializationTest() throws Exception {
     TestParDoWrapper wrapper =
         new TestParDoWrapper(options, WindowingStrategy.globalDefault(), new TestDoFn());
 
@@ -126,7 +130,9 @@ public class PipelineOptionsTest {
   }
 
   private static class TestParDoWrapper extends FlinkAbstractParDoWrapper {
-    public TestParDoWrapper(PipelineOptions options, WindowingStrategy windowingStrategy, OldDoFn doFn) {
+    public TestParDoWrapper(PipelineOptions options,
+                            WindowingStrategy windowingStrategy,
+                            OldDoFn doFn) {
       super(options, windowingStrategy, doFn);
     }
 

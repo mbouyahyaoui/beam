@@ -17,9 +17,9 @@
  */
 package org.apache.beam.runners.flink;
 
-import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.AggregatorRetrievalException;
 import org.apache.beam.sdk.AggregatorValues;
+import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.transforms.Aggregator;
 
 import org.joda.time.Duration;
@@ -36,10 +36,11 @@ import java.util.Map;
 public class FlinkRunnerResult implements PipelineResult {
   private final Map<String, Object> aggregators;
   private final long runtime;
+
   public FlinkRunnerResult(Map<String, Object> aggregators, long runtime) {
-    this.aggregators = (aggregators == null || aggregators.isEmpty()) ?
-        Collections.<String, Object>emptyMap() :
-        Collections.unmodifiableMap(aggregators);
+    this.aggregators = (aggregators == null || aggregators.isEmpty())
+        ? Collections.<String, Object>emptyMap()
+        : Collections.unmodifiableMap(aggregators);
     this.runtime = runtime;
   }
 
@@ -49,7 +50,8 @@ public class FlinkRunnerResult implements PipelineResult {
   }
 
   @Override
-  public <T> AggregatorValues<T> getAggregatorValues(final Aggregator<?, T> aggregator) throws AggregatorRetrievalException {
+  public <T> AggregatorValues<T> getAggregatorValues(final Aggregator<?, T> aggregator) throws
+      AggregatorRetrievalException {
     // TODO provide a list of all accumulator step values
     Object value = aggregators.get(aggregator.getName());
     if (value != null) {
@@ -67,10 +69,10 @@ public class FlinkRunnerResult implements PipelineResult {
 
   @Override
   public String toString() {
-    return "FlinkRunnerResult{" +
-        "aggregators=" + aggregators +
-        ", runtime=" + runtime +
-        '}';
+    return "FlinkRunnerResult{"
+        + "aggregators=" + aggregators
+        + ", runtime=" + runtime
+        + '}';
   }
 
   @Override

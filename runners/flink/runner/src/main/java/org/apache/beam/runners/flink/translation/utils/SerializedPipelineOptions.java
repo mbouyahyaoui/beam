@@ -15,7 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.beam.runners.flink.translation.utils;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -35,7 +34,7 @@ public class SerializedPipelineOptions implements Serializable {
 
   private final byte[] serializedOptions;
 
-  /** Lazily initialized copy of deserialized options */
+  /** Lazily initialized copy of deserialized options. */
   private transient PipelineOptions pipelineOptions;
 
   public SerializedPipelineOptions(PipelineOptions options) {

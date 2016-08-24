@@ -34,6 +34,9 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * State checkpoint utils.
+ */
 public class StateCheckpointUtils {
 
   public static <K> void encodeState(Map<K, FlinkStateInternals<K>> perKeyStateInternals,
@@ -124,7 +127,9 @@ public class StateCheckpointUtils {
     return activeTimers;
   }
 
-  private static void encodeTimerDataForKey(StateCheckpointWriter writer, Set<TimerInternals.TimerData> timers) throws IOException {
+  private static void encodeTimerDataForKey(StateCheckpointWriter writer,
+                                            Set<TimerInternals.TimerData> timers)
+      throws IOException {
     // encode timers
     writer.writeInt(timers.size());
     for (TimerInternals.TimerData timer : timers) {

@@ -121,7 +121,8 @@ public class WriteSinkITCase extends JavaProgramTestBase {
       }
 
       @Override
-      public void finalize(Iterable<String> writerResults, PipelineOptions options) throws Exception {
+      public void finalize(Iterable<String> writerResults, PipelineOptions options)
+          throws Exception {
 
       }
 

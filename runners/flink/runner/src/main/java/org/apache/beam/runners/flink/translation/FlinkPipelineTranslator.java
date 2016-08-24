@@ -32,6 +32,7 @@ public abstract class FlinkPipelineTranslator extends Pipeline.PipelineVisitor.D
 
   /**
    * Translates the pipeline by passing this class as a visitor.
+   *
    * @param pipeline The pipeline to be translated
    */
   public void translate(Pipeline pipeline) {
@@ -39,7 +40,8 @@ public abstract class FlinkPipelineTranslator extends Pipeline.PipelineVisitor.D
   }
 
   /**
-   * Utility formatting method
+   * Utility formatting method.
+   *
    * @param n number of spaces to generate
    * @return String with "|" followed by n spaces
    */

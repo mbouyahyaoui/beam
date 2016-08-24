@@ -56,6 +56,9 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Test on state serialization.
+ */
 public class StateSerializationTest {
 
   private static final StateNamespace NAMESPACE_1 = StateNamespaces.global();
@@ -63,82 +66,87 @@ public class StateSerializationTest {
 
   // TODO: This can be replaced with the standard Sum.SumIntererFn once the state no longer needs
   // to create a StateTag at the point of restoring state. Currently StateTags are compared strictly
-  // by type and combiners always use KeyedCombineFnWithContext rather than KeyedCombineFn or CombineFn.
-  private static CombineWithContext.KeyedCombineFnWithContext<Object, Integer, int[], Integer> SUM_COMBINER =
-    new CombineWithContext.KeyedCombineFnWithContext<Object, Integer, int[], Integer>() {
-      @Override
-      public int[] createAccumulator(Object key, CombineWithContext.Context c) {
-        return new int[1];
-      }
+  // by type and combiners always use KeyedCombineFnWithContext rather
+  // than KeyedCombineFn or CombineFn.
+  private static CombineWithContext.KeyedCombineFnWithContext<Object, Integer, int[], Integer>
+      sumCombiner = new CombineWithContext.KeyedCombineFnWithContext<Object, Integer, int[],
+      Integer>() {
+    @Override
+    public int[] createAccumulator(Object key, CombineWithContext.Context c) {
+      return new int[1];
+    }
 
-      @Override
-      public int[] addInput(Object key, int[] accumulator, Integer value, CombineWithContext.Context c) {
-        accumulator[0] += value;
-        return accumulator;
-      }
+    @Override
+    public int[] addInput(Object key, int[] accumulator, Integer value, CombineWithContext
+        .Context c) {
+      accumulator[0] += value;
+      return accumulator;
+    }
 
-      @Override
-      public int[] mergeAccumulators(Object key, Iterable<int[]> accumulators, CombineWithContext.Context c) {
-        int[] r = new int[1];
-        for (int[] a : accumulators) {
-          r[0] += a[0];
+    @Override
+    public int[] mergeAccumulators(Object key, Iterable<int[]> accumulators, CombineWithContext
+        .Context c) {
+      int[] r = new int[1];
+      for (int[] a : accumulators) {
+        r[0] += a[0];
+      }
+      return r;
+    }
+
+    @Override
+    public Integer extractOutput(Object key, int[] accumulator, CombineWithContext.Context c) {
+      return accumulator[0];
+    }
+  };
+
+  private static Coder<int[]> intAccumCoder = DelegateCoder.of(
+      VarIntCoder.of(),
+      new DelegateCoder.CodingFunction<int[], Integer>() {
+        @Override
+        public Integer apply(int[] accumulator) {
+          return accumulator[0];
         }
-        return r;
-      }
 
-      @Override
-      public Integer extractOutput(Object key, int[] accumulator, CombineWithContext.Context c) {
-        return accumulator[0];
-      }
-    };
+        @Override
+        public boolean equals(Object o) {
+          return o != null && this.getClass() == o.getClass();
+        }
 
-  private static Coder<int[]> INT_ACCUM_CODER = DelegateCoder.of(
-    VarIntCoder.of(),
-    new DelegateCoder.CodingFunction<int[], Integer>() {
-      @Override
-      public Integer apply(int[] accumulator) {
-        return accumulator[0];
-      }
+        @Override
+        public int hashCode() {
+          return this.getClass().hashCode();
+        }
+      },
+      new DelegateCoder.CodingFunction<Integer, int[]>() {
+        @Override
+        public int[] apply(Integer value) {
+          int[] a = new int[1];
+          a[0] = value;
+          return a;
+        }
 
-      @Override
-      public boolean equals(Object o) {
-        return o != null && this.getClass() == o.getClass();
-      }
+        @Override
+        public boolean equals(Object o) {
+          return o != null && this.getClass() == o.getClass();
+        }
 
-     @Override
-      public int hashCode() {
-        return this.getClass().hashCode();
-      }
-    },
-    new DelegateCoder.CodingFunction<Integer, int[]>() {
-      @Override
-      public int[] apply(Integer value) {
-        int[] a = new int[1];
-        a[0] = value;
-        return a;
-      }
-
-      @Override
-      public boolean equals(Object o) {
-        return o != null && this.getClass() == o.getClass();
-      }
-
-      @Override
-      public int hashCode() {
-        return this.getClass().hashCode();
-      }
-    });
+        @Override
+        public int hashCode() {
+          return this.getClass().hashCode();
+        }
+      });
 
   private static final StateTag<Object, ValueState<String>> STRING_VALUE_ADDR =
-    StateTags.value("stringValue", StringUtf8Coder.of());
+      StateTags.value("stringValue", StringUtf8Coder.of());
   private static final StateTag<Object, ValueState<Integer>> INT_VALUE_ADDR =
-    StateTags.value("stringValue", VarIntCoder.of());
-  private static final StateTag<Object, AccumulatorCombiningState<Integer, int[], Integer>> SUM_INTEGER_ADDR =
-    StateTags.keyedCombiningValueWithContext("sumInteger", INT_ACCUM_CODER, SUM_COMBINER);
+      StateTags.value("stringValue", VarIntCoder.of());
+  private static final StateTag<Object, AccumulatorCombiningState<Integer, int[], Integer>>
+      SUM_INTEGER_ADDR =
+      StateTags.keyedCombiningValueWithContext("sumInteger", intAccumCoder, sumCombiner);
   private static final StateTag<Object, BagState<String>> STRING_BAG_ADDR =
-    StateTags.bag("stringBag", StringUtf8Coder.of());
+      StateTags.bag("stringBag", StringUtf8Coder.of());
   private static final StateTag<Object, WatermarkHoldState<BoundedWindow>> WATERMARK_BAG_ADDR =
-    StateTags.watermarkStateInternal("watermark", OutputTimeFns.outputAtEarliestInputTimestamp());
+      StateTags.watermarkStateInternal("watermark", OutputTimeFns.outputAtEarliestInputTimestamp());
 
   private Map<String, FlinkStateInternals<String>> statePerKey = new HashMap<>();
 
@@ -152,8 +160,8 @@ public class StateSerializationTest {
       Set<TimerInternals.TimerData> timers = new HashSet<>();
       for (int j = 0; j < 5; j++) {
         TimerInternals.TimerData timer = TimerInternals
-          .TimerData.of(NAMESPACE_1,
-            new Instant(1000 + i + j), TimeDomain.values()[j % 3]);
+            .TimerData.of(NAMESPACE_1,
+                new Instant(1000 + i + j), TimeDomain.values()[j % 3]);
         timers.add(timer);
       }
 
@@ -162,7 +170,8 @@ public class StateSerializationTest {
     }
   }
 
-  private FlinkStateInternals<String> initializeStateForKey(String key) throws CannotProvideCoderException {
+  private FlinkStateInternals<String> initializeStateForKey(String key) throws
+      CannotProvideCoderException {
     FlinkStateInternals<String> state = createState(key);
 
     ValueState<String> value = state.state(NAMESPACE_1, STRING_VALUE_ADDR);
@@ -172,7 +181,8 @@ public class StateSerializationTest {
     value2.write(4);
     value2.write(5);
 
-    AccumulatorCombiningState<Integer, int[], Integer> combiningValue = state.state(NAMESPACE_1, SUM_INTEGER_ADDR);
+    AccumulatorCombiningState<Integer, int[], Integer> combiningValue = state.state(NAMESPACE_1,
+        SUM_INTEGER_ADDR);
     combiningValue.add(1);
     combiningValue.add(2);
 
@@ -200,7 +210,8 @@ public class StateSerializationTest {
     }
 
     // restore the timers
-    Map<String, Set<TimerInternals.TimerData>> restoredTimersPerKey = StateCheckpointUtils.decodeTimers(reader, windowCoder, keyCoder);
+    Map<String, Set<TimerInternals.TimerData>> restoredTimersPerKey = StateCheckpointUtils
+        .decodeTimers(reader, windowCoder, keyCoder);
     if (activeTimers.size() != restoredTimersPerKey.size()) {
       return false;
     }
@@ -213,7 +224,8 @@ public class StateSerializationTest {
 
     // restore the state
     Map<String, FlinkStateInternals<String>> restoredPerKeyState =
-      StateCheckpointUtils.decodeState(reader, OutputTimeFns.outputAtEarliestInputTimestamp(), keyCoder, windowCoder, userClassloader);
+        StateCheckpointUtils.decodeState(reader, OutputTimeFns.outputAtEarliestInputTimestamp(),
+            keyCoder, windowCoder, userClassloader);
     if (restoredPerKeyState.size() != statePerKey.size()) {
       return false;
     }
@@ -235,7 +247,8 @@ public class StateSerializationTest {
     ValueState<Integer> value2 = state.state(NAMESPACE_1, INT_VALUE_ADDR);
     comp &= value2.read().equals(5);
 
-    AccumulatorCombiningState<Integer, int[], Integer> combiningValue = state.state(NAMESPACE_1, SUM_INTEGER_ADDR);
+    AccumulatorCombiningState<Integer, int[], Integer> combiningValue = state.state(NAMESPACE_1,
+        SUM_INTEGER_ADDR);
     comp &= combiningValue.read().equals(3);
 
     WatermarkHoldState<BoundedWindow> watermark = state.state(NAMESPACE_1, WATERMARK_BAG_ADDR);
@@ -261,7 +274,8 @@ public class StateSerializationTest {
     StateCheckpointUtils.encodeState(statePerKey, checkpointBuilder, keyCoder);
   }
 
-  private boolean checkTimersForKey(Set<TimerInternals.TimerData> originalTimers, Set<TimerInternals.TimerData> restoredTimers) {
+  private boolean checkTimersForKey(Set<TimerInternals.TimerData> originalTimers,
+                                    Set<TimerInternals.TimerData> restoredTimers) {
     boolean comp = true;
     if (restoredTimers == null) {
       return false;
@@ -277,7 +291,9 @@ public class StateSerializationTest {
     return comp;
   }
 
-  private boolean checkStateForKey(FlinkStateInternals<String> originalState, FlinkStateInternals<String> restoredState) throws CannotProvideCoderException {
+  private boolean checkStateForKey(FlinkStateInternals<String> originalState,
+                                   FlinkStateInternals<String> restoredState) throws
+      CannotProvideCoderException {
     if (restoredState == null) {
       return false;
     }
@@ -290,8 +306,10 @@ public class StateSerializationTest {
     ValueState<Integer> resIntValue = restoredState.state(NAMESPACE_1, INT_VALUE_ADDR);
     comp &= orIntValue.read().equals(resIntValue.read());
 
-    AccumulatorCombiningState<Integer, int[], Integer> combOrValue = originalState.state(NAMESPACE_1, SUM_INTEGER_ADDR);
-    AccumulatorCombiningState<Integer, int[], Integer> combResValue = restoredState.state(NAMESPACE_1, SUM_INTEGER_ADDR);
+    AccumulatorCombiningState<Integer, int[], Integer> combOrValue = originalState.state
+        (NAMESPACE_1, SUM_INTEGER_ADDR);
+    AccumulatorCombiningState<Integer, int[], Integer> combResValue = restoredState.state
+        (NAMESPACE_1, SUM_INTEGER_ADDR);
     comp &= combOrValue.read().equals(combResValue.read());
 
     WatermarkHoldState orWatermark = originalState.state(NAMESPACE_1, WATERMARK_BAG_ADDR);
@@ -313,10 +331,10 @@ public class StateSerializationTest {
 
   private FlinkStateInternals<String> createState(String key) throws CannotProvideCoderException {
     return new FlinkStateInternals<>(
-      key,
-      StringUtf8Coder.of(),
-      IntervalWindow.getCoder(),
-      OutputTimeFns.outputAtEarliestInputTimestamp());
+        key,
+        StringUtf8Coder.of(),
+        IntervalWindow.getCoder(),
+        OutputTimeFns.outputAtEarliestInputTimestamp());
   }
 
   @Test
@@ -324,8 +342,10 @@ public class StateSerializationTest {
     StateSerializationTest test = new StateSerializationTest();
     test.initializeStateAndTimers();
 
-    MemoryStateBackend.MemoryCheckpointOutputStream memBackend = new MemoryStateBackend.MemoryCheckpointOutputStream(32048);
-    AbstractStateBackend.CheckpointStateOutputView out = new AbstractStateBackend.CheckpointStateOutputView(memBackend);
+    MemoryStateBackend.MemoryCheckpointOutputStream memBackend = new MemoryStateBackend
+        .MemoryCheckpointOutputStream(32048);
+    AbstractStateBackend.CheckpointStateOutputView out = new AbstractStateBackend
+        .CheckpointStateOutputView(memBackend);
 
     test.storeState(out);
 

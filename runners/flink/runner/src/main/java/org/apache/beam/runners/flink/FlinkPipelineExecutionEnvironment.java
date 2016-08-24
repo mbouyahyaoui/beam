@@ -39,14 +39,16 @@ import java.util.List;
 /**
  * The class that instantiates and manages the execution of a given job.
  * Depending on if the job is a Streaming or Batch processing one, it creates
- * the adequate execution environment ({@link ExecutionEnvironment} or {@link StreamExecutionEnvironment}),
+ * the adequate execution environment ({@link ExecutionEnvironment} or
+ * {@link StreamExecutionEnvironment}),
  * the necessary {@link FlinkPipelineTranslator} ({@link FlinkBatchPipelineTranslator} or
  * {@link FlinkStreamingPipelineTranslator}) to transform the Beam job into a Flink one, and
  * executes the (translated) job.
  */
 public class FlinkPipelineExecutionEnvironment {
 
-  private static final Logger LOG = LoggerFactory.getLogger(FlinkPipelineExecutionEnvironment.class);
+  private static final Logger LOG = LoggerFactory.getLogger(FlinkPipelineExecutionEnvironment
+      .class);
 
   private final FlinkPipelineOptions options;
 
@@ -72,7 +74,7 @@ public class FlinkPipelineExecutionEnvironment {
    * provided {@link FlinkPipelineOptions}.
    *
    * @param options the user-defined pipeline options.
-   * */
+   */
   FlinkPipelineExecutionEnvironment(FlinkPipelineOptions options) {
     this.options = checkNotNull(options);
   }
@@ -81,9 +83,10 @@ public class FlinkPipelineExecutionEnvironment {
    * Depending on if the job is a Streaming or a Batch one, this method creates
    * the necessary execution environment and pipeline translator, and translates
    * the {@link org.apache.beam.sdk.values.PCollection} program into
-   * a {@link org.apache.flink.api.java.DataSet} or {@link org.apache.flink.streaming.api.datastream.DataStream}
+   * a {@link org.apache.flink.api.java.DataSet} or
+   * {@link org.apache.flink.streaming.api.datastream.DataStream}
    * one.
-   * */
+   */
   public void translate(Pipeline pipeline) {
     this.flinkBatchEnv = null;
     this.flinkStreamEnv = null;
@@ -108,7 +111,7 @@ public class FlinkPipelineExecutionEnvironment {
 
   /**
    * Launches the program execution.
-   * */
+   */
   public JobExecutionResult executePipeline() throws Exception {
     final String jobName = options.getJobName();
 
@@ -215,7 +218,7 @@ public class FlinkPipelineExecutionEnvironment {
     // If the value is not -1, then the validity checks are applied.
     // By default, checkpointing is disabled.
     long checkpointInterval = options.getCheckpointingInterval();
-    if(checkpointInterval != -1) {
+    if (checkpointInterval != -1) {
       if (checkpointInterval < 1) {
         throw new IllegalArgumentException("The checkpoint interval must be positive");
       }

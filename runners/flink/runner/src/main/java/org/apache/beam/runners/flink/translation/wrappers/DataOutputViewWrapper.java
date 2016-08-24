@@ -29,7 +29,7 @@ import java.io.OutputStream;
  * {@link java.io.OutputStream}.
  */
 public class DataOutputViewWrapper extends OutputStream {
-  
+
   private DataOutputView outputView;
 
   public DataOutputViewWrapper(DataOutputView outputView) {

@@ -39,9 +39,9 @@ import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.Read;
 import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.CombineFnBase;
-import org.apache.beam.sdk.transforms.OldDoFn;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.GroupByKey;
+import org.apache.beam.sdk.transforms.OldDoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.View;
@@ -304,10 +304,10 @@ class FlinkBatchTransformTranslators {
 
   /**
    * Combiner that combines {@code T}s into a single {@code List<T>} containing all inputs.
-   *
+   * <p>
    * <p>For internal use to translate {@link GroupByKey}. For a large {@link PCollection} this
    * is expected to crash!
-   *
+   * <p>
    * <p>This is copied from the dataflow runner code.
    *
    * @param <T> the type of elements to concatenate.
@@ -352,7 +352,7 @@ class FlinkBatchTransformTranslators {
 
   private static class CombinePerKeyTranslatorBatch<K, InputT, AccumT, OutputT>
       implements FlinkBatchPipelineTranslator.BatchTransformTranslator<
-          Combine.PerKey<K, InputT, OutputT>> {
+      Combine.PerKey<K, InputT, OutputT>> {
 
     @Override
     @SuppressWarnings("unchecked")
@@ -393,7 +393,7 @@ class FlinkBatchTransformTranslators {
       // construct a map from side input to WindowingStrategy so that
       // the OldDoFn runner can map main-input windows to side input windows
       Map<PCollectionView<?>, WindowingStrategy<?, ?>> sideInputStrategies = new HashMap<>();
-      for (PCollectionView<?> sideInput: transform.getSideInputs()) {
+      for (PCollectionView<?> sideInput : transform.getSideInputs()) {
         sideInputStrategies.put(sideInput, sideInput.getWindowingStrategyInternal());
       }
 
@@ -485,7 +485,7 @@ class FlinkBatchTransformTranslators {
 
   private static class ParDoBoundTranslatorBatch<InputT, OutputT>
       implements FlinkBatchPipelineTranslator.BatchTransformTranslator<
-          ParDo.Bound<InputT, OutputT>> {
+      ParDo.Bound<InputT, OutputT>> {
 
     @Override
     public void translateNode(
@@ -504,7 +504,7 @@ class FlinkBatchTransformTranslators {
       // construct a map from side input to WindowingStrategy so that
       // the OldDoFn runner can map main-input windows to side input windows
       Map<PCollectionView<?>, WindowingStrategy<?, ?>> sideInputStrategies = new HashMap<>();
-      for (PCollectionView<?> sideInput: sideInputs) {
+      for (PCollectionView<?> sideInput : sideInputs) {
         sideInputStrategies.put(sideInput, sideInput.getWindowingStrategyInternal());
       }
 
@@ -530,7 +530,7 @@ class FlinkBatchTransformTranslators {
 
   private static class ParDoBoundMultiTranslatorBatch<InputT, OutputT>
       implements FlinkBatchPipelineTranslator.BatchTransformTranslator<
-          ParDo.BoundMulti<InputT, OutputT>> {
+      ParDo.BoundMulti<InputT, OutputT>> {
 
     @Override
     public void translateNode(
@@ -547,7 +547,7 @@ class FlinkBatchTransformTranslators {
       // put the main output at index 0, FlinkMultiOutputDoFnFunction  expects this
       outputMap.put(transform.getMainOutputTag(), 0);
       int count = 1;
-      for (TupleTag<?> tag: outputs.keySet()) {
+      for (TupleTag<?> tag : outputs.keySet()) {
         if (!outputMap.containsKey(tag)) {
           outputMap.put(tag, count++);
         }
@@ -558,7 +558,7 @@ class FlinkBatchTransformTranslators {
 
       // collect all output Coders and create a UnionCoder for our tagged outputs
       List<Coder<?>> outputCoders = Lists.newArrayList();
-      for (PCollection<?> coll: outputs.values()) {
+      for (PCollection<?> coll : outputs.values()) {
         outputCoders.add(coll.getCoder());
         windowingStrategy = coll.getWindowingStrategy();
       }
@@ -580,7 +580,7 @@ class FlinkBatchTransformTranslators {
       // construct a map from side input to WindowingStrategy so that
       // the OldDoFn runner can map main-input windows to side input windows
       Map<PCollectionView<?>, WindowingStrategy<?, ?>> sideInputStrategies = new HashMap<>();
-      for (PCollectionView<?> sideInput: sideInputs) {
+      for (PCollectionView<?> sideInput : sideInputs) {
         sideInputStrategies.put(sideInput, sideInput.getWindowingStrategyInternal());
       }
 
@@ -602,7 +602,7 @@ class FlinkBatchTransformTranslators {
 
       transformSideInputs(sideInputs, taggedDataSet, context);
 
-      for (Map.Entry<TupleTag<?>, PCollection<?>> output: outputs.entrySet()) {
+      for (Map.Entry<TupleTag<?>, PCollection<?>> output : outputs.entrySet()) {
         pruneOutput(
             taggedDataSet,
             context,
@@ -634,7 +634,7 @@ class FlinkBatchTransformTranslators {
 
   private static class FlattenPCollectionTranslatorBatch<T>
       implements FlinkBatchPipelineTranslator.BatchTransformTranslator<
-          Flatten.FlattenPCollectionList<T>> {
+      Flatten.FlattenPCollectionList<T>> {
 
     @Override
     @SuppressWarnings("unchecked")
@@ -688,7 +688,7 @@ class FlinkBatchTransformTranslators {
 
   private static class CreatePCollectionViewTranslatorBatch<ElemT, ViewT>
       implements FlinkBatchPipelineTranslator.BatchTransformTranslator<
-          View.CreatePCollectionView<ElemT, ViewT>> {
+      View.CreatePCollectionView<ElemT, ViewT>> {
 
     @Override
     public void translateNode(
@@ -714,6 +714,7 @@ class FlinkBatchTransformTranslators {
     }
   }
 
-  private FlinkBatchTransformTranslators() {}
+  private FlinkBatchTransformTranslators() {
+  }
 
 }

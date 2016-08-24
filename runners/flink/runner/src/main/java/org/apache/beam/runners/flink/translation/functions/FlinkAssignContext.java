@@ -27,8 +27,6 @@ import com.google.common.collect.Iterables;
 
 import org.joda.time.Instant;
 
-import java.util.Collection;
-
 /**
  * {@link org.apache.beam.sdk.transforms.windowing.WindowFn.AssignContext} for
  * Flink functions.
