@@ -17,20 +17,9 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import io.searchbox.client.JestClient;
-import io.searchbox.client.JestClientFactory;
-import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.core.Search;
-import io.searchbox.core.SearchResult;
-
 import java.io.File;
 import java.io.Serializable;
-import java.nio.channels.Pipe;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.testing.NeedsRunner;
@@ -41,16 +30,12 @@ import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
-import org.elasticsearch.action.get.GetRequest;
-import org.elasticsearch.action.get.GetResponse;
-import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.node.Node;
 import org.elasticsearch.node.NodeBuilder;
-import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -64,7 +49,7 @@ import org.slf4j.LoggerFactory;
  */
 public class ElasticsearchIOTest implements Serializable {
 
-  private final static Logger LOGGER = LoggerFactory.getLogger(ElasticsearchIOTest.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(ElasticsearchIOTest.class);
 
   private transient Node node;
 

@@ -32,7 +32,6 @@ import io.searchbox.indices.Stats;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -41,7 +40,6 @@ import javax.annotation.Nullable;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
-import org.apache.beam.sdk.io.Read;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -51,7 +49,45 @@ import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 
 /**
- * TODO
+ * <p>IO to read and write data on Elasticsearch.</p>
+ *
+ * <h3>Reading from Elasticsearch</h3>
+ *
+ * <p>ElasticsearchIO source returns a bounded collection of String representing JSON document
+ * as {@code PCollection<String>}.</p>
+ *
+ * <p>To configure the Elasticsearch source, you have to provide the HTTP address of the
+ * instance, and an index name. The following example illustrates various options for
+ * configuring the source:</p>
+ *
+ * <pre>{@code
+ *
+ * pipeline.apply(ElasticsearchIO.read()
+ *   .withAddress("http://host:9200")
+ *   .withIndex("my-index")
+ *
+ * }</pre>
+ *
+ * <p>The source also accepts optional configuration: {@code withUsername()}, {@code
+ * withPassword()}, {@code withQuery()}, {@code withType()}.</p>
+ *
+ * <h3>Writing to Elasticsearch</h3>
+ *
+ * <p>ElasticsearchIO supports sink to write documents (as JSON String).</p>
+ *
+ * <p>To configure Elasticsearch sink, you must specify HTTP {@code address} of the instance, an
+ * {@code index}, {@code type}. For instance:</p>
+ *
+ * <pre>{@code
+ *
+ *  pipeline
+ *    .apply(...)
+ *    .apply(ElasticsearchIO.write()
+ *      .withAddress("http://host:9200")
+ *      .withIndex("my-index")
+ *      .withType("my-type")
+ *
+ * }</pre>
  */
 public class ElasticsearchIO {
 
@@ -66,6 +102,9 @@ public class ElasticsearchIO {
   private ElasticsearchIO() {
   }
 
+  /**
+   * A {@link PTransform<PBegin, PCollection<String>>} reading data from Elasticsearch.
+   */
   public static class Read extends PTransform<PBegin, PCollection<String>> {
 
     public Read withAddress(String address) {
@@ -157,7 +196,9 @@ public class ElasticsearchIO {
     }
 
     @Override
-    public List<? extends BoundedSource<String>> splitIntoBundles(long desiredBundleSizeBytes, PipelineOptions options) throws Exception {
+    public List<? extends BoundedSource<String>> splitIntoBundles(long desiredBundleSizeBytes,
+                                                                  PipelineOptions options)
+        throws Exception {
       // TODO
       return null;
     }
@@ -284,6 +325,9 @@ public class ElasticsearchIO {
     }
   }
 
+  /**
+   * A {@link PTransform<PCollection<String>, PDone>} writing data to Elasticsearch.
+   */
   public static class Write extends PTransform<PCollection<String>, PDone> {
 
     public Write withAddress(String address) {
