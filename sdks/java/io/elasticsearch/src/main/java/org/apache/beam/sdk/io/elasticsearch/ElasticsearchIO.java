@@ -18,6 +18,7 @@
 package org.apache.beam.sdk.io.elasticsearch;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.JsonObject;
 import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.JestResult;
@@ -27,6 +28,7 @@ import io.searchbox.core.BulkResult;
 import io.searchbox.core.Index;
 import io.searchbox.core.Search;
 import io.searchbox.core.SearchResult;
+import io.searchbox.indices.Stats;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -116,7 +118,6 @@ public class ElasticsearchIO {
     private final String password;
     @Nullable
     private final String query;
-    @Nullable
     private final String index;
     @Nullable
     private final String type;
@@ -163,7 +164,26 @@ public class ElasticsearchIO {
 
     @Override
     public long getEstimatedSizeBytes(PipelineOptions options) throws Exception {
-      // TODO
+      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
+          .multiThreaded(true);
+      if (username != null) {
+        builder = builder.defaultCredentials(username, password);
+      }
+      JestClientFactory factory = new JestClientFactory();
+      factory.setHttpClientConfig(builder.build());
+      JestClient client = factory.getObject();
+
+      Stats stats = new Stats.Builder().build();
+      JestResult result =  client.execute(stats);
+
+      if (result.isSucceeded()) {
+        JsonObject jsonResult = result.getJsonObject();
+        JsonObject statsJson = jsonResult.getAsJsonObject("indices").getAsJsonObject(index)
+            .getAsJsonObject("total");
+        JsonObject storeJson = statsJson.getAsJsonObject("store");
+        return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
+      }
+
       return 0;
     }
 
@@ -180,6 +200,7 @@ public class ElasticsearchIO {
     @Override
     public void validate() {
       Preconditions.checkNotNull(address, "address");
+      Preconditions.checkNotNull(index, "index");
     }
 
     @Override
