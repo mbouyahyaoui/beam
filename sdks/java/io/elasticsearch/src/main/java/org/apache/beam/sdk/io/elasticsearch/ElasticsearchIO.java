@@ -473,20 +473,22 @@ public class ElasticsearchIO {
 
       @FinishBundle
       public void finishBundle(Context context) throws Exception {
-        Bulk bulk = new Bulk.Builder()
-            .defaultIndex(index)
-            .defaultType(type)
-            .addAction(batch)
-            .build();
-        BulkResult result = client.execute(bulk);
-        if (!result.isSucceeded()) {
-          for (BulkResult.BulkResultItem item : result.getFailedItems()) {
-            System.out.println(item.toString());
+        if (batch.size() > 0) {
+          Bulk bulk = new Bulk.Builder()
+              .defaultIndex(index)
+              .defaultType(type)
+              .addAction(batch)
+              .build();
+          BulkResult result = client.execute(bulk);
+          if (!result.isSucceeded()) {
+            for (BulkResult.BulkResultItem item : result.getFailedItems()) {
+              System.out.println(item.toString());
+            }
+            throw new IllegalStateException("Can't update Elasticsearch: "
+                + result.getErrorMessage());
           }
-          throw new IllegalStateException("Can't update Elasticsearch: "
-              + result.getErrorMessage());
+          batch.clear();
         }
-        batch.clear();
       }
 
       @Teardown
