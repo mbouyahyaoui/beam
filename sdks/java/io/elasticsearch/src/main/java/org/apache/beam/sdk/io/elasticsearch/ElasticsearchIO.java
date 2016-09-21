@@ -95,7 +95,7 @@ public class ElasticsearchIO {
 
     //defaults to 1024 documents and 1MB bacth size
     public static Write write() {
-        return new Write(new Write.Writer(null, null, null, null, null, 1024L, 1048576L));
+        return new Write(new Write.Writer(null, null, null, null, null, 1024L, 1));
     }
 
   public static Read read() {
@@ -357,7 +357,7 @@ public class ElasticsearchIO {
         return new Write(writer.withBatchSize(batchSize));
     }
 
-    public Write withBatchSizeMegaBytes(long batchSizeMegaBytes) {
+    public Write withBatchSizeMegaBytes(int batchSizeMegaBytes) {
         return new Write(writer.withBatchSizeMegaBytes(batchSizeMegaBytes));
     }
 
@@ -382,14 +382,14 @@ public class ElasticsearchIO {
       private final String type;
       private final long batchSize;
       //byte size of bacth in MB
-      private final long batchSizeMegaBytes;
+      private final int batchSizeMegaBytes;
 
         private JestClient client;
         private ArrayList<Index> batch;
         private long currentBatchSizeBytes;
 
         public Writer(String address, String username, String password, String index,
-                      String type, long batchSize, long batchSizeMegaBytes) {
+                      String type, long batchSize, int batchSizeMegaBytes) {
             this.address = address;
             this.username = username;
             this.password = password;
@@ -429,7 +429,7 @@ public class ElasticsearchIO {
                               batchSizeMegaBytes);
         }
 
-        public Writer withBatchSizeMegaBytes(long batchSizeMegaBytes) {
+        public Writer withBatchSizeMegaBytes(int batchSizeMegaBytes) {
             return new Writer(address, username, password, index, type, batchSize,
                               batchSizeMegaBytes);
         }
@@ -457,7 +457,7 @@ public class ElasticsearchIO {
             @StartBundle
             public void startBundle(Context context) throws Exception {
                 batch = new ArrayList<>();
-                currentBatchSizeBytes = 0L;
+                currentBatchSizeBytes = 0;
             }
 
             @ProcessElement
@@ -466,7 +466,7 @@ public class ElasticsearchIO {
                 batch.add(new Index.Builder(json).index(index).type(type).build());
                 currentBatchSizeBytes += json.getBytes().length;
                 if (batch.size() >= batchSize
-                        || (currentBatchSizeBytes / 1024 / 1024) >= batchSizeMegaBytes) {
+                        || currentBatchSizeBytes >= (batchSizeMegaBytes * 1024 * 1024)) {
                     finishBundle(context);
                 }
             }
