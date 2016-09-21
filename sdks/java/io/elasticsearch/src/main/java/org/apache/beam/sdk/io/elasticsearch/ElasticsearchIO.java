@@ -31,7 +31,6 @@ import io.searchbox.core.SearchResult;
 import io.searchbox.core.SearchShards;
 import io.searchbox.indices.Stats;
 import io.searchbox.params.Parameters;
-import io.searchbox.params.SearchType;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -54,16 +53,16 @@ import org.apache.beam.sdk.values.PDone;
 
 /**
  * <p>IO to read and write data on Elasticsearch.</p>
- *
+ * <p>
  * <h3>Reading from Elasticsearch</h3>
- *
+ * <p>
  * <p>ElasticsearchIO source returns a bounded collection of String representing JSON document
  * as {@code PCollection<String>}.</p>
- *
+ * <p>
  * <p>To configure the Elasticsearch source, you have to provide the HTTP address of the
  * instance, and an index name. The following example illustrates various options for
  * configuring the source:</p>
- *
+ * <p>
  * <pre>{@code
  *
  * pipeline.apply(ElasticsearchIO.read()
@@ -71,17 +70,17 @@ import org.apache.beam.sdk.values.PDone;
  *   .withIndex("my-index")
  *
  * }</pre>
- *
+ * <p>
  * <p>The source also accepts optional configuration: {@code withUsername()}, {@code
  * withPassword()}, {@code withQuery()}, {@code withType()}.</p>
- *
+ * <p>
  * <h3>Writing to Elasticsearch</h3>
- *
+ * <p>
  * <p>ElasticsearchIO supports sink to write documents (as JSON String).</p>
- *
+ * <p>
  * <p>To configure Elasticsearch sink, you must specify HTTP {@code address} of the instance, an
  * {@code index}, {@code type}. For instance:</p>
- *
+ * <p>
  * <pre>{@code
  *
  *  pipeline
@@ -96,7 +95,7 @@ import org.apache.beam.sdk.values.PDone;
 public class ElasticsearchIO {
 
   public static Write write() {
-    return new Write(new Write.Writer(null, null, null, null, null, 1024L));
+    return new Write(new Write.Writer(null, null, null, null, null, 1024L, 1));
   }
 
   public static Read read() {
@@ -392,6 +391,14 @@ public class ElasticsearchIO {
       return new Write(writer.withType(type));
     }
 
+    public Write withBatchSize(long batchSize) {
+      return new Write(writer.withBatchSize(batchSize));
+    }
+
+    public Write withBatchSizeMegaBytes(int batchSizeMegaBytes) {
+      return new Write(writer.withBatchSizeMegaBytes(batchSizeMegaBytes));
+    }
+
     private final Writer writer;
 
     private Write(Writer writer) {
@@ -412,38 +419,57 @@ public class ElasticsearchIO {
       private final String index;
       private final String type;
       private final long batchSize;
+      //byte size of bacth in MB
+      private final int batchSizeMegaBytes;
 
       private JestClient client;
       private ArrayList<Index> batch;
+      private long currentBatchSizeBytes;
 
-      public Writer(String address, String username, String password, String index, String type,
-                    long batchSize) {
+      public Writer(String address, String username, String password, String index,
+                    String type, long batchSize, int batchSizeMegaBytes) {
         this.address = address;
         this.username = username;
         this.password = password;
         this.index = index;
         this.type = type;
         this.batchSize = batchSize;
+        this.batchSizeMegaBytes = batchSizeMegaBytes;
       }
 
       public Writer withAddress(String address) {
-        return new Writer(address, username, password, index, type, batchSize);
+        return new Writer(address, username, password, index, type, batchSize,
+            batchSizeMegaBytes);
       }
 
       public Writer withUsername(String username) {
-        return new Writer(address, username, password, index, type, batchSize);
+        return new Writer(address, username, password, index, type, batchSize,
+            batchSizeMegaBytes);
       }
 
       public Writer withPassword(String password) {
-        return new Writer(address, username, password, index, type, batchSize);
+        return new Writer(address, username, password, index, type, batchSize,
+            batchSizeMegaBytes);
       }
 
       public Writer withIndex(String index) {
-        return new Writer(address, username, password, index, type, batchSize);
+        return new Writer(address, username, password, index, type, batchSize,
+            batchSizeMegaBytes);
       }
 
       public Writer withType(String type) {
-        return new Writer(address, username, password, index, type, batchSize);
+        return new Writer(address, username, password, index, type, batchSize,
+            batchSizeMegaBytes);
+      }
+
+      public Writer withBatchSize(long batchSize) {
+        return new Writer(address, username, password, index, type, batchSize,
+            batchSizeMegaBytes);
+      }
+
+      public Writer withBatchSizeMegaBytes(int batchSizeMegaBytes) {
+        return new Writer(address, username, password, index, type, batchSize,
+            batchSizeMegaBytes);
       }
 
       public void validate() {
@@ -469,33 +495,38 @@ public class ElasticsearchIO {
       @StartBundle
       public void startBundle(Context context) throws Exception {
         batch = new ArrayList<>();
+        currentBatchSizeBytes = 0;
       }
 
       @ProcessElement
       public void processElement(ProcessContext context) throws Exception {
         String json = context.element();
         batch.add(new Index.Builder(json).index(index).type(type).build());
-        if (batch.size() >= batchSize) {
+        currentBatchSizeBytes += json.getBytes().length;
+        if (batch.size() >= batchSize
+            || currentBatchSizeBytes >= (batchSizeMegaBytes * 1024 * 1024)) {
           finishBundle(context);
         }
       }
 
       @FinishBundle
       public void finishBundle(Context context) throws Exception {
-        Bulk bulk = new Bulk.Builder()
-            .defaultType(index)
-            .defaultType(type)
-            .addAction(batch)
-            .build();
-        BulkResult result = client.execute(bulk);
-        if (!result.isSucceeded()) {
-          for (BulkResult.BulkResultItem item : result.getFailedItems()) {
-            System.out.println(item.toString());
+        if (batch.size() > 0) {
+          Bulk bulk = new Bulk.Builder()
+              .defaultIndex(index)
+              .defaultType(type)
+              .addAction(batch)
+              .build();
+          BulkResult result = client.execute(bulk);
+          if (!result.isSucceeded()) {
+            for (BulkResult.BulkResultItem item : result.getFailedItems()) {
+              System.out.println(item.toString());
+            }
+            throw new IllegalStateException("Can't update Elasticsearch: "
+                + result.getErrorMessage());
           }
-          throw new IllegalStateException("Can't update Elasticsearch: "
-              + result.getErrorMessage());
+          batch.clear();
         }
-        batch.clear();
       }
 
       @Teardown

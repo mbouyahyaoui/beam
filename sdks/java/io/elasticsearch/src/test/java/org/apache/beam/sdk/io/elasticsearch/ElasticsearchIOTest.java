@@ -17,17 +17,9 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import io.searchbox.client.JestClient;
-import io.searchbox.client.JestClientFactory;
-import io.searchbox.client.JestResult;
-import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.core.BulkResult;
-import io.searchbox.core.SearchShards;
-
 import java.io.File;
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
@@ -40,6 +32,8 @@ import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PDone;
+import org.apache.commons.io.FileUtils;
 import org.elasticsearch.action.bulk.BulkProcessor;
 import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
@@ -66,21 +60,23 @@ public class ElasticsearchIOTest implements Serializable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ElasticsearchIOTest.class);
 
+  private static final String DATA_DIRECTORY = "target/elasticsearch";
+  public static final String ES_INDEX = "beam";
+  public static final String ES_TYPE = "test";
+  public static final String ES_ADDRESS = "http://localhost:9201";
+
   private transient Node node;
 
   @Before
   public void before() throws Exception {
     LOGGER.info("Starting embedded Elasticsearch instance");
-    File file = new File("target/elasticsearch");
-    if (file.exists()) {
-      file.delete();
-    }
+    FileUtils.deleteDirectory(new File(DATA_DIRECTORY));
     Settings.Builder settingsBuilder = Settings.settingsBuilder()
         .put("cluster.name", "beam")
         .put("http.enabled", "true")
         .put("node.data", "true")
-        .put("path.data", "target/elasticsearch")
-        .put("path.home", "target/elasticsearch")
+        .put("path.data", DATA_DIRECTORY)
+        .put("path.home", DATA_DIRECTORY)
         .put("node.name", "beam")
         .put("network.host", "localhost")
         .put("port", 9301)
@@ -116,18 +112,10 @@ public class ElasticsearchIOTest implements Serializable {
     }
 
     public void waitFinished() {
-      while(concurrentRequests > 0 && pendingBulkItemCount.get() > 0) {
-        LockSupport.parkNanos(1000*50);
+      while (concurrentRequests > 0 && pendingBulkItemCount.get() > 0) {
+        LockSupport.parkNanos(1000 * 50);
       }
     }
-  }
-
-  private JestClient createClient() throws Exception {
-    HttpClientConfig.Builder builder = new HttpClientConfig.Builder("http://localhost:9201")
-        .multiThreaded(true);
-    JestClientFactory factory = new JestClientFactory();
-    factory.setHttpClientConfig(builder.build());
-    return factory.getObject();
   }
 
   private void sampleIndex() throws Exception {
@@ -141,27 +129,27 @@ public class ElasticsearchIOTest implements Serializable {
     for (int i = 0; i < 1000; i++) {
       int index = i % scientists.length;
       String source = String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i);
-      bulkProcessor.add(new IndexRequest("beam", "test").source(source));
+      bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).source(source));
     }
     bulkProcessor.close();
   }
 
   @Test
   @Category(NeedsRunner.class)
-  public void testFullRead() throws Exception {
+  public void testRead() throws Exception {
     sampleIndex();
 
     Pipeline pipeline = TestPipeline.create();
 
     PCollection<String> output =
         pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201")
-            .withIndex("beam"));
+            .withIndex(ES_INDEX));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(1000L);
     output.apply(ParDo.of(new DoFn<String, String>() {
       @ProcessElement
       public void processElement(ProcessContext context) {
         String element = context.element();
-        System.out.println(element);
+        LOGGER.info(element);
       }
     }));
     pipeline.run();
@@ -169,21 +157,7 @@ public class ElasticsearchIOTest implements Serializable {
 
   @Test
   @Category(NeedsRunner.class)
-  public void testIndexRead() throws Exception {
-    sampleIndex();
-
-    Pipeline pipeline = TestPipeline.create();
-
-    PCollection<String> output =
-        pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201")
-            .withIndex("beam"));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(1000L);
-    pipeline.run();
-  }
-
-  @Test
-  @Category(NeedsRunner.class)
-  public void testQueryRead() throws Exception {
+  public void testReadWithQuery() throws Exception {
     sampleIndex();
 
     QueryBuilder qb = QueryBuilders.matchQuery("scientist", "Einstein");
@@ -191,8 +165,8 @@ public class ElasticsearchIOTest implements Serializable {
     Pipeline pipeline = TestPipeline.create();
 
     PCollection<String> output =
-        pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201")
-            .withQuery(qb.toString()));
+        pipeline.apply(ElasticsearchIO.read().withAddress(ES_ADDRESS)
+            .withQuery(qb.toString()).withIndex(ES_INDEX).withType(ES_TYPE));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(100L);
     pipeline.run();
   }
@@ -211,7 +185,7 @@ public class ElasticsearchIOTest implements Serializable {
     }
     pipeline.apply(Create.of(data))
         .apply(ElasticsearchIO.write().withAddress("http://localhost:9201")
-            .withIndex("beam").withType("test"));
+            .withIndex(ES_INDEX).withType(ES_TYPE));
 
     pipeline.run();
 
@@ -227,10 +201,42 @@ public class ElasticsearchIOTest implements Serializable {
     Assert.assertEquals(200, response.getHits().getTotalHits());
   }
 
+    @Test
+    @Category(NeedsRunner.class)
+    public void testWriteWithBatchSizes() throws Exception {
+        Pipeline pipeline = TestPipeline.create();
+
+        String[] scientists = {"Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday",
+                "Newton", "Bohr", "Galilei", "Maxwell"};
+        ArrayList<String> data = new ArrayList<>();
+        for (int i = 0; i < 2000; i++) {
+            int index = i % scientists.length;
+            data.add(String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i));
+        }
+        PDone collection = pipeline.apply(Create.of(data)).apply(
+                ElasticsearchIO.write().withAddress("http://localhost:9201").withIndex(ES_INDEX)
+                        .withType(ES_TYPE).withBatchSize(2000)/*.withBatchSizeMegaBytes(1)*/);
+
+        //TODO assert nb bundles == 1
+        pipeline.run();
+
+        // gives time for bulk to complete
+        Thread.sleep(5000);
+
+        SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
+        Assert.assertEquals(2000, response.getHits().getTotalHits());
+
+        QueryBuilder queryBuilder = QueryBuilders.queryStringQuery("Einstein").field("scientist");
+        response = node.client().prepareSearch().setQuery(queryBuilder)
+                .execute().actionGet();
+        Assert.assertEquals(200, response.getHits().getTotalHits());
+    }
+
   @After
   public void after() throws Exception {
     if (node != null) {
       node.close();
     }
   }
+
 }
