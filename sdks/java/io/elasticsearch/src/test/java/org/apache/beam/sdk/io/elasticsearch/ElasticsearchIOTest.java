@@ -27,6 +27,7 @@ import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
+import org.apache.commons.io.FileUtils;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.QueryBuilder;
@@ -42,6 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 
@@ -51,13 +53,14 @@ import java.util.ArrayList;
 public class ElasticsearchIOTest implements Serializable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ElasticsearchIOTest.class);
+  private static final String DATA_DIRECTORY = "target/elasticsearch";
 
   private transient Node node;
 
   @Before
   public void before() throws Exception {
     LOGGER.info("Starting embedded Elasticsearch instance");
-    File file = new File("target/elasticsearch");
+    File file = new File(DATA_DIRECTORY);
     if (file.exists()) {
       file.delete();
     }
@@ -65,8 +68,8 @@ public class ElasticsearchIOTest implements Serializable {
         .put("cluster.name", "beam")
         .put("http.enabled", "true")
         .put("node.data", "true")
-        .put("path.data", "target/elasticsearch")
-        .put("path.home", "target/elasticsearch")
+        .put("path.data", DATA_DIRECTORY)
+        .put("path.home", DATA_DIRECTORY)
         .put("node.name", "beam")
         .put("network.host", "localhost")
         .put("port", 9301)
@@ -203,6 +206,15 @@ public class ElasticsearchIOTest implements Serializable {
   public void after() throws Exception {
     if (node != null) {
       node.close();
+    }
+    cleanEmbededElasticSearch();
+  }
+
+  private void cleanEmbededElasticSearch() {
+    try {
+        FileUtils.deleteDirectory(new File(DATA_DIRECTORY));
+    } catch (IOException e) {
+        throw new RuntimeException("Could not delete data directory of embedded elasticsearch server", e);
     }
   }
 }
