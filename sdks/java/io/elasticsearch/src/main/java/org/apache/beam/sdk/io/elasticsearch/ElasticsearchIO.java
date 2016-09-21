@@ -474,7 +474,7 @@ public class ElasticsearchIO {
       @FinishBundle
       public void finishBundle(Context context) throws Exception {
         Bulk bulk = new Bulk.Builder()
-            .defaultType(index)
+            .defaultIndex(index)
             .defaultType(type)
             .addAction(batch)
             .build();
