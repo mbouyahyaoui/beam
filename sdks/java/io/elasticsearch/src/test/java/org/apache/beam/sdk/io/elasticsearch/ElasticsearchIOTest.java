@@ -17,9 +17,19 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
+import io.searchbox.client.JestClient;
+import io.searchbox.client.JestClientFactory;
+import io.searchbox.client.JestResult;
+import io.searchbox.client.config.HttpClientConfig;
+import io.searchbox.core.BulkResult;
+import io.searchbox.core.SearchShards;
+
 import java.io.File;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.testing.NeedsRunner;
@@ -30,8 +40,13 @@ import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
+import org.elasticsearch.action.bulk.BulkProcessor;
+import org.elasticsearch.action.bulk.BulkRequest;
+import org.elasticsearch.action.bulk.BulkResponse;
+import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.node.Node;
@@ -77,14 +92,58 @@ public class ElasticsearchIOTest implements Serializable {
     }
   }
 
+  private final class BulkListener implements BulkProcessor.Listener {
+    private final AtomicLong pendingBulkItemCount = new AtomicLong();
+    private final int concurrentRequests;
+
+    public BulkListener(int concurrentRequests) {
+      this.concurrentRequests = concurrentRequests;
+    }
+
+    @Override
+    public void beforeBulk(long executionId, BulkRequest request) {
+      pendingBulkItemCount.addAndGet(request.numberOfActions());
+    }
+    @Override
+    public void afterBulk(long executionId, BulkRequest request, Throwable failure) {
+      LOGGER.warn("Can't append into Elasticsearch", failure);
+      pendingBulkItemCount.addAndGet(-request.numberOfActions());
+    }
+
+    @Override
+    public void afterBulk(long executionId, BulkRequest request, BulkResponse response) {
+      pendingBulkItemCount.addAndGet(-response.getItems().length);
+    }
+
+    public void waitFinished() {
+      while(concurrentRequests > 0 && pendingBulkItemCount.get() > 0) {
+        LockSupport.parkNanos(1000*50);
+      }
+    }
+  }
+
+  private JestClient createClient() throws Exception {
+    HttpClientConfig.Builder builder = new HttpClientConfig.Builder("http://localhost:9201")
+        .multiThreaded(true);
+    JestClientFactory factory = new JestClientFactory();
+    factory.setHttpClientConfig(builder.build());
+    return factory.getObject();
+  }
+
   private void sampleIndex() throws Exception {
+    BulkProcessor bulkProcessor = BulkProcessor.builder(node.client(), new BulkListener(5))
+        .setBulkActions(100)
+        .setConcurrentRequests(5)
+        .setFlushInterval(TimeValue.timeValueSeconds(5))
+        .build();
     String[] scientists = {"Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday",
         "Newton", "Bohr", "Galilei", "Maxwell"};
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 1000; i++) {
       int index = i % scientists.length;
       String source = String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i);
-      node.client().prepareIndex("beam", "test").setSource(source).get();
+      bulkProcessor.add(new IndexRequest("beam", "test").source(source));
     }
+    bulkProcessor.close();
   }
 
   @Test
@@ -95,8 +154,9 @@ public class ElasticsearchIOTest implements Serializable {
     Pipeline pipeline = TestPipeline.create();
 
     PCollection<String> output =
-        pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201"));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(100L);
+        pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201")
+            .withIndex("beam"));
+    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(1000L);
     output.apply(ParDo.of(new DoFn<String, String>() {
       @ProcessElement
       public void processElement(ProcessContext context) {
@@ -117,7 +177,7 @@ public class ElasticsearchIOTest implements Serializable {
     PCollection<String> output =
         pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201")
             .withIndex("beam"));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(100L);
+    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(1000L);
     pipeline.run();
   }
 
@@ -133,7 +193,7 @@ public class ElasticsearchIOTest implements Serializable {
     PCollection<String> output =
         pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201")
             .withQuery(qb.toString()));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(10L);
+    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(100L);
     pipeline.run();
   }
 

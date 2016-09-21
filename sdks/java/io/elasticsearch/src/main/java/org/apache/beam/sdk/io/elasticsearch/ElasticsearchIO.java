@@ -28,11 +28,15 @@ import io.searchbox.core.BulkResult;
 import io.searchbox.core.Index;
 import io.searchbox.core.Search;
 import io.searchbox.core.SearchResult;
+import io.searchbox.core.SearchShards;
 import io.searchbox.indices.Stats;
+import io.searchbox.params.Parameters;
+import io.searchbox.params.SearchType;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 import javax.annotation.Nullable;
@@ -96,7 +100,7 @@ public class ElasticsearchIO {
   }
 
   public static Read read() {
-    return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null));
+    return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null, null));
   }
 
   private ElasticsearchIO() {
@@ -160,51 +164,52 @@ public class ElasticsearchIO {
     private final String index;
     @Nullable
     private final String type;
+    @Nullable
+    private final String shardPreference;
 
     private BoundedElasticsearchSource(String address, String username, String password,
-                                       String query, String index, String type) {
+                                       String query, String index, String type,
+                                       String shardPreference) {
       this.address = address;
       this.username = username;
       this.password = password;
       this.query = query;
       this.index = index;
       this.type = type;
+      this.shardPreference = shardPreference;
     }
 
     public BoundedElasticsearchSource withAddress(String address) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type);
+      return new BoundedElasticsearchSource(address, username, password, query, index, type,
+          shardPreference);
     }
 
     public BoundedElasticsearchSource withUsername(String username) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type);
+      return new BoundedElasticsearchSource(address, username, password, query, index, type,
+          shardPreference);
     }
 
     public BoundedElasticsearchSource withPassword(String password) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type);
+      return new BoundedElasticsearchSource(address, username, password, query, index, type,
+          shardPreference);
     }
 
     public BoundedElasticsearchSource withQuery(String query) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type);
+      return new BoundedElasticsearchSource(address, username, password, query, index, type,
+          shardPreference);
     }
 
     public BoundedElasticsearchSource withIndex(String index) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type);
+      return new BoundedElasticsearchSource(address, username, password, query, index, type,
+          shardPreference);
     }
 
     public BoundedElasticsearchSource withType(String type) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type);
+      return new BoundedElasticsearchSource(address, username, password, query, index, type,
+          shardPreference);
     }
 
-    @Override
-    public List<? extends BoundedSource<String>> splitIntoBundles(long desiredBundleSizeBytes,
-                                                                  PipelineOptions options)
-        throws Exception {
-      // TODO
-      return null;
-    }
-
-    @Override
-    public long getEstimatedSizeBytes(PipelineOptions options) throws Exception {
+    private JestClient createClient() throws Exception {
       HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
           .multiThreaded(true);
       if (username != null) {
@@ -212,10 +217,41 @@ public class ElasticsearchIO {
       }
       JestClientFactory factory = new JestClientFactory();
       factory.setHttpClientConfig(builder.build());
-      JestClient client = factory.getObject();
+      return factory.getObject();
+    }
+
+    @Override
+    public List<? extends BoundedSource<String>> splitIntoBundles(long desiredBundleSizeBytes,
+                                                                  PipelineOptions options)
+        throws Exception {
+      // TODO
+      // we get the shards with their size, and we create multiple source per shard (according to
+      // size of the shard / desizedBundleSizeBytes
+      JestClient client = createClient();
+      SearchShards searchShards = new SearchShards.Builder()
+          .addIndex(index)
+          .build();
+      JestResult result = client.execute(searchShards);
+      if (result.isSucceeded()) {
+        // got the shards
+        Map shards = result.getSourceAsObject(Map.class);
+        // addParameter("preference", "_shards:ID")
+        // get the size of a shard/index (cat API) to create eventually multiple sources per shard
+        // (depending of the desired bundle size / estimated size of the shard)
+      } else {
+        // return a single source
+      }
+      return null;
+    }
+
+    @Override
+    public long getEstimatedSizeBytes(PipelineOptions options) throws Exception {
+      JestClient client = createClient();
 
       Stats stats = new Stats.Builder().build();
-      JestResult result =  client.execute(stats);
+      JestResult result = client.execute(stats);
+
+      client.shutdownClient();
 
       if (result.isSucceeded()) {
         JsonObject jsonResult = result.getJsonObject();
@@ -282,7 +318,13 @@ public class ElasticsearchIO {
             + "}";
       }
 
+      // TODO use search scroll
       Search.Builder searchBuilder = new Search.Builder(query);
+      // TODO use option parameters or max value
+      searchBuilder.setParameter(Parameters.SIZE, 10000);
+      if (source.shardPreference != null) {
+        searchBuilder.setParameter("preference", source.shardPreference);
+      }
       if (source.index != null) {
         searchBuilder.addIndex(source.index);
       }
