@@ -17,10 +17,6 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import java.io.File;
-import java.io.Serializable;
-import java.util.ArrayList;
-
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.testing.NeedsRunner;
 import org.apache.beam.sdk.testing.PAssert;
@@ -30,6 +26,7 @@ import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PDone;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.QueryBuilder;
@@ -43,6 +40,10 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.Serializable;
+import java.util.ArrayList;
 
 /**
  * Test on {@link ElasticsearchIO}.
@@ -166,6 +167,37 @@ public class ElasticsearchIOTest implements Serializable {
         .execute().actionGet();
     Assert.assertEquals(200, response.getHits().getTotalHits());
   }
+
+    @Test
+    @Category(NeedsRunner.class)
+    public void testWriteWithBatchSizes() throws Exception {
+        Pipeline pipeline = TestPipeline.create();
+
+        String[] scientists = {"Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday",
+                "Newton", "Bohr", "Galilei", "Maxwell"};
+        ArrayList<String> data = new ArrayList<>();
+        for (int i = 0; i < 2000; i++) {
+            int index = i % scientists.length;
+            data.add(String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i));
+        }
+        PDone collection = pipeline.apply(Create.of(data)).apply(
+                ElasticsearchIO.write().withAddress("http://localhost:9201").withIndex("beam")
+                        .withType("test").withBatchSize(2000).withBatchSizeMegaBytes(1));
+
+        //TODO assert nb bundles == 1
+        pipeline.run();
+
+        // gives time for bulk to complete
+        Thread.sleep(5000);
+
+        SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
+        Assert.assertEquals(2000, response.getHits().getTotalHits());
+
+        QueryBuilder queryBuilder = QueryBuilders.queryStringQuery("Einstein").field("scientist");
+        response = node.client().prepareSearch().setQuery(queryBuilder)
+                .execute().actionGet();
+        Assert.assertEquals(200, response.getHits().getTotalHits());
+    }
 
   @After
   public void after() throws Exception {

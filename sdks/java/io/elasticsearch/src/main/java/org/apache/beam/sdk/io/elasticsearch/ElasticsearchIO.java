@@ -32,6 +32,7 @@ import io.searchbox.indices.Stats;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -40,6 +41,7 @@ import javax.annotation.Nullable;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.io.Read;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -91,9 +93,10 @@ import org.apache.beam.sdk.values.PDone;
  */
 public class ElasticsearchIO {
 
-  public static Write write() {
-    return new Write(new Write.Writer(null, null, null, null, null, 1024L));
-  }
+    //defaults to 1024 documents and 1MB bacth size
+    public static Write write() {
+        return new Write(new Write.Writer(null, null, null, null, null, 1024L, 1048576L));
+    }
 
   public static Read read() {
     return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null));
@@ -350,6 +353,14 @@ public class ElasticsearchIO {
       return new Write(writer.withType(type));
     }
 
+    public Write withBatchSize(long batchSize) {
+        return new Write(writer.withBatchSize(batchSize));
+    }
+
+    public Write withBatchSizeMegaBytes(long batchSizeMegaBytes) {
+        return new Write(writer.withBatchSizeMegaBytes(batchSizeMegaBytes));
+    }
+
     private final Writer writer;
 
     private Write(Writer writer) {
@@ -370,39 +381,58 @@ public class ElasticsearchIO {
       private final String index;
       private final String type;
       private final long batchSize;
+      //byte size of bacth in MB
+      private final long batchSizeMegaBytes;
 
-      private JestClient client;
-      private ArrayList<Index> batch;
+        private JestClient client;
+        private ArrayList<Index> batch;
+        private long currentBatchSizeBytes;
 
-      public Writer(String address, String username, String password, String index, String type,
-                    long batchSize) {
-        this.address = address;
-        this.username = username;
-        this.password = password;
-        this.index = index;
-        this.type = type;
-        this.batchSize = batchSize;
-      }
+        public Writer(String address, String username, String password, String index,
+                      String type, long batchSize, long batchSizeMegaBytes) {
+            this.address = address;
+            this.username = username;
+            this.password = password;
+            this.index = index;
+            this.type = type;
+            this.batchSize = batchSize;
+            this.batchSizeMegaBytes = batchSizeMegaBytes;
+        }
 
-      public Writer withAddress(String address) {
-        return new Writer(address, username, password, index, type, batchSize);
-      }
+        public Writer withAddress(String address) {
+            return new Writer(address, username, password, index, type, batchSize,
+                              batchSizeMegaBytes);
+        }
 
-      public Writer withUsername(String username) {
-        return new Writer(address, username, password, index, type, batchSize);
-      }
+        public Writer withUsername(String username) {
+            return new Writer(address, username, password, index, type, batchSize,
+                              batchSizeMegaBytes);
+        }
 
-      public Writer withPassword(String password) {
-        return new Writer(address, username, password, index, type, batchSize);
-      }
+        public Writer withPassword(String password) {
+            return new Writer(address, username, password, index, type, batchSize,
+                              batchSizeMegaBytes);
+        }
 
-      public Writer withIndex(String index) {
-        return new Writer(address, username, password, index, type, batchSize);
-      }
+        public Writer withIndex(String index) {
+            return new Writer(address, username, password, index, type, batchSize,
+                              batchSizeMegaBytes);
+        }
 
-      public Writer withType(String type) {
-        return new Writer(address, username, password, index, type, batchSize);
-      }
+        public Writer withType(String type) {
+            return new Writer(address, username, password, index, type, batchSize,
+                              batchSizeMegaBytes);
+        }
+
+        public Writer withBatchSize(long batchSize) {
+            return new Writer(address, username, password, index, type, batchSize,
+                              batchSizeMegaBytes);
+        }
+
+        public Writer withBatchSizeMegaBytes(long batchSizeMegaBytes) {
+            return new Writer(address, username, password, index, type, batchSize,
+                              batchSizeMegaBytes);
+        }
 
       public void validate() {
         Preconditions.checkNotNull(address, "address");
@@ -424,19 +454,22 @@ public class ElasticsearchIO {
         }
       }
 
-      @StartBundle
-      public void startBundle(Context context) throws Exception {
-        batch = new ArrayList<>();
-      }
+            @StartBundle
+            public void startBundle(Context context) throws Exception {
+                batch = new ArrayList<>();
+                currentBatchSizeBytes = 0L;
+            }
 
-      @ProcessElement
-      public void processElement(ProcessContext context) throws Exception {
-        String json = context.element();
-        batch.add(new Index.Builder(json).index(index).type(type).build());
-        if (batch.size() >= batchSize) {
-          finishBundle(context);
-        }
-      }
+            @ProcessElement
+            public void processElement(ProcessContext context) throws Exception {
+                String json = context.element();
+                batch.add(new Index.Builder(json).index(index).type(type).build());
+                currentBatchSizeBytes += json.getBytes().length;
+                if (batch.size() >= batchSize
+                        || (currentBatchSizeBytes / 1024 / 1024) >= batchSizeMegaBytes) {
+                    finishBundle(context);
+                }
+            }
 
       @FinishBundle
       public void finishBundle(Context context) throws Exception {
