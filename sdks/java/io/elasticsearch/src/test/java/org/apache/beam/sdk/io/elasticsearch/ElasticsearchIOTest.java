@@ -54,6 +54,9 @@ public class ElasticsearchIOTest implements Serializable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ElasticsearchIOTest.class);
   private static final String DATA_DIRECTORY = "target/elasticsearch";
+  public static final String ES_INDEX = "beam";
+  public static final String ES_TYPE = "test";
+  public static final String ES_ADDRESS = "http://localhost:9201";
 
   private transient Node node;
 
@@ -87,43 +90,31 @@ public class ElasticsearchIOTest implements Serializable {
     for (int i = 0; i < 100; i++) {
       int index = i % scientists.length;
       String source = String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i);
-      node.client().prepareIndex("beam", "test").setSource(source).get();
+      node.client().prepareIndex(ES_INDEX, ES_TYPE).setSource(source).get();
     }
   }
 
   @Test
   @Category(NeedsRunner.class)
-  public void testFullRead() throws Exception {
+  public void testRead() throws Exception {
     sampleIndex();
 
     Pipeline pipeline = TestPipeline.create();
 
     PCollection<String> output =
-        pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201"));
+        pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201").withIndex
+            (ES_INDEX).withType(ES_TYPE));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(100L);
     output.apply(ParDo.of(new DoFn<String, String>() {
       @ProcessElement
       public void processElement(ProcessContext context) {
         String element = context.element();
-        System.out.println(element);
+        LOGGER.info(element);
       }
     }));
     pipeline.run();
   }
 
-  @Test
-  @Category(NeedsRunner.class)
-  public void testIndexRead() throws Exception {
-    sampleIndex();
-
-    Pipeline pipeline = TestPipeline.create();
-
-    PCollection<String> output =
-        pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201")
-            .withIndex("beam"));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(100L);
-    pipeline.run();
-  }
 
   @Test
   @Category(NeedsRunner.class)
@@ -135,8 +126,8 @@ public class ElasticsearchIOTest implements Serializable {
     Pipeline pipeline = TestPipeline.create();
 
     PCollection<String> output =
-        pipeline.apply(ElasticsearchIO.read().withAddress("http://localhost:9201")
-            .withQuery(qb.toString()));
+        pipeline.apply(ElasticsearchIO.read().withAddress(ES_ADDRESS)
+            .withQuery(qb.toString()).withIndex(ES_INDEX).withType(ES_TYPE));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(10L);
     pipeline.run();
   }
@@ -155,7 +146,7 @@ public class ElasticsearchIOTest implements Serializable {
     }
     pipeline.apply(Create.of(data))
         .apply(ElasticsearchIO.write().withAddress("http://localhost:9201")
-            .withIndex("beam").withType("test"));
+            .withIndex(ES_INDEX).withType(ES_TYPE));
 
     pipeline.run();
 
@@ -184,8 +175,8 @@ public class ElasticsearchIOTest implements Serializable {
             data.add(String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i));
         }
         PDone collection = pipeline.apply(Create.of(data)).apply(
-                ElasticsearchIO.write().withAddress("http://localhost:9201").withIndex("beam")
-                        .withType("test").withBatchSize(2000).withBatchSizeMegaBytes(1));
+                ElasticsearchIO.write().withAddress("http://localhost:9201").withIndex(ES_INDEX)
+                        .withType(ES_TYPE).withBatchSize(2000)/*.withBatchSizeMegaBytes(1)*/);
 
         //TODO assert nb bundles == 1
         pipeline.run();
