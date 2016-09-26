@@ -138,12 +138,15 @@ public class ElasticsearchIOTest implements Serializable {
 
   private void sampleIndex() throws Exception {
     BulkProcessor bulkProcessor =
-        BulkProcessor.builder(node.client(), new BulkListener(5)).setBulkActions(
-            100).setConcurrentRequests(5).setFlushInterval(TimeValue.timeValueSeconds(5)).build();
+        BulkProcessor.builder(node.client(), new BulkListener(5))
+            .setBulkActions(100)
+            .setConcurrentRequests(5)
+            .setFlushInterval(TimeValue.timeValueSeconds(5))
+            .build();
     String[] scientists =
         { "Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday", "Newton", "Bohr",
             "Galilei", "Maxwell" };
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 1000; i++) {
       int index = i % scientists.length;
       String source = String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i);
       bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).source(source));

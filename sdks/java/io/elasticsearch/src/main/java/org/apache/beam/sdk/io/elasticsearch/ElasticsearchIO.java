@@ -34,7 +34,6 @@ import io.searchbox.indices.Stats;
 import io.searchbox.params.Parameters;
 
 import java.io.IOException;
-import java.io.Serializable;
 import java.util.*;
 
 import javax.annotation.Nullable;
@@ -46,7 +45,6 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.reflect.DoFnSignature;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
@@ -324,6 +322,7 @@ public class ElasticsearchIO {
 
   private static class BoundedElasticsearchReader extends BoundedSource.BoundedReader<String> {
 
+    public static final int ES_INDEX_MAX_RESULT_WINDOW = 10000;
     private final BoundedElasticsearchSource source;
 
     private JestClient client;
@@ -363,6 +362,8 @@ public class ElasticsearchIO {
       if (source.sizeToRead != null) {
         searchBuilder.setParameter(Parameters.SIZE, convertBytesToNbDocs(source.sizeToRead));
       }
+      else
+        searchBuilder.setParameter(Parameters.SIZE, ES_INDEX_MAX_RESULT_WINDOW);
       if (source.index != null) {
         searchBuilder.addIndex(source.index);
       }
@@ -378,13 +379,13 @@ public class ElasticsearchIO {
     }
 
     private long convertBytesToNbDocs(Long size) {
-      //TODO, maybe with avg(sizeOfDoc)?
-      return 10000;
+      //TODO, maybe with size / avg(sizeOfDoc)?
+      return ES_INDEX_MAX_RESULT_WINDOW;
     }
 
     @Override
     public boolean advance() throws IOException {
-      //TODO get scroll id of last response dans use in to request and get next bunch of data
+      //TODO get scroll id of last response and use it to get next bunch of data
       if (result != null && result.size() > 0) {
         current = result.remove(0);
         return true;
