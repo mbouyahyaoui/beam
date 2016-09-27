@@ -158,8 +158,7 @@ public class ElasticsearchIOTest implements Serializable {
   @Category(NeedsRunner.class)
   public void testRead() throws Exception {
     sampleIndex();
-//    LOGGER.info("inserted {} docs", countHowManyDocsInserted());
-    String[] args = new String[] { "--runner=FlinkRunner", "--project=test-project", };
+    String[] args = new String[] { "--runner=FlinkRunner", "--project=test-project"};
 
     TestPipeline pipeline =
         TestPipeline.fromOptions(PipelineOptionsFactory.fromArgs(args).create());
@@ -176,25 +175,6 @@ public class ElasticsearchIOTest implements Serializable {
       }
     }));
     pipeline.run();
-  }
-
-  private long countHowManyDocsInserted() throws IOException {
-    HttpClientConfig.Builder builder =
-        new HttpClientConfig.Builder("http://" + ES_IP + ":" + ES_HTTP_PORT).multiThreaded(true);
-    JestClientFactory factory = new JestClientFactory();
-    factory.setHttpClientConfig(builder.build());
-    JestClient client = factory.getObject();
-
-    String query = "{\n" + "  \"query\": {\n" + "    \"match_all\": {}\n" + "  }\n" + "}";
-
-    Search.Builder searchBuilder = new Search.Builder(query);
-    searchBuilder.addIndex(ES_INDEX);
-    searchBuilder.addType(ES_TYPE);
-    Search search = searchBuilder.build();
-    SearchResult searchResult = client.execute(search);
-    List<String> result = searchResult.getSourceAsStringList();
-    return result.size();
-
   }
 
   @Test

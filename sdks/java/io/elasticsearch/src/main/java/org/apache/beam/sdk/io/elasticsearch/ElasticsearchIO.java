@@ -357,7 +357,7 @@ public class ElasticsearchIO {
       if (source.shardPreference != null) {
         searchBuilder.setParameter("preference",source.shardPreference);
       }
-    //TODO scroll
+    //TODO scroll, merge with JB
 
       if (source.sizeToRead != null) {
         searchBuilder.setParameter(Parameters.SIZE, convertBytesToNbDocs(source.sizeToRead));
