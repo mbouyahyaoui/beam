@@ -78,6 +78,7 @@ public class ElasticsearchIOTest implements Serializable {
   public static final String ES_IP = "localhost";
   public static final String ES_HTTP_PORT = "9201";
   public static final String ES_TCP_PORT = "9301";
+  private static final long NB_DOCS = 1000L;
 
   private transient Node node;
 
@@ -134,7 +135,7 @@ public class ElasticsearchIOTest implements Serializable {
     }
   }
 
-  private void sampleIndex() throws Exception {
+  private long sampleIndex(long nbDocs, boolean allInOneShard) throws Exception {
     BulkProcessor bulkProcessor =
         BulkProcessor.builder(node.client(), new BulkListener(5))
             .setBulkActions(100)
@@ -144,18 +145,25 @@ public class ElasticsearchIOTest implements Serializable {
     String[] scientists =
         { "Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday", "Newton", "Bohr",
             "Galilei", "Maxwell" };
-    for (int i = 0; i < 1000; i++) {
+    long size = 0;
+    for (int i = 0; i < nbDocs; i++) {
       int index = i % scientists.length;
       String source = String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i);
-      bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).source(source));
+      size += source.getBytes().length;
+      if (allInOneShard)
+        //put all docs in one shard
+        bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).routing("oneShard").source(source));
+      else
+        bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).source(source));
     }
     bulkProcessor.close();
+    return size;
   }
 
   @Test
   @Category(NeedsRunner.class)
   public void testRead() throws Exception {
-    sampleIndex();
+    sampleIndex(NB_DOCS, false);
     String[] args = new String[] { "--runner=FlinkRunner", "--project=test-project"};
 
     TestPipeline pipeline =
@@ -164,7 +172,7 @@ public class ElasticsearchIOTest implements Serializable {
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
             ES_INDEX).withType(ES_TYPE));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(1000L);
+    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS);
     output.apply(ParDo.of(new DoFn<String, String>() {
       @ProcessElement
       public void processElement(ProcessContext context) {
@@ -178,7 +186,7 @@ public class ElasticsearchIOTest implements Serializable {
   @Test
   @Category(NeedsRunner.class)
   public void testReadWithQuery() throws Exception {
-    sampleIndex();
+    sampleIndex(NB_DOCS, false);
 
     QueryBuilder qb = QueryBuilders.matchQuery("scientist", "Einstein");
 
@@ -253,17 +261,22 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   @Test
-  public void testSplits() throws Exception{
-    sampleIndex();
+  public void testSplitsWithDesiredBundleSizeBiggerThanShardSize() throws Exception{
+    sampleIndex(NB_DOCS, false);
+    //TODO debug bulk listenner, sleep is in the meantime
+    Thread.sleep(30000);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
             ES_INDEX).withType(ES_TYPE);
     BoundedElasticsearchSource initialSource = read.getSource();
-    //while scroll is not merged, put a very high desiredBundleSize so that ES ahrd wwhould not
-    // be split => meaning, there will me as many sources as ES shards.
-    List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(1073741824, options);
-    assertEquals(5, splits.size());
+    //ES creates 5 shards for that amount of data, so there should be 5 split because bundlesize
+    // is > to shard size
+    int desiredBundleSizeBytes = 1073741824;
+    List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
+        desiredBundleSizeBytes, options);
+    int expectedNbSplits = 5;
+    assertEquals(expectedNbSplits, splits.size());
     SourceTestUtils.
     assertSourcesEqualReferenceSource(initialSource, splits, options);
     int nonEmptySplits = 0;
@@ -271,9 +284,39 @@ public class ElasticsearchIOTest implements Serializable {
       if (readFromSource(subSource, options).size() > 0) {
         nonEmptySplits += 1;
       }
-    assertTrue(nonEmptySplits == 5);
+    assertEquals(expectedNbSplits, nonEmptySplits);
 
   }
+
+  @Test
+  public void testSplitsWithSmallerDesiredBundleSizeThanShardSize() throws Exception{
+    //put all docs in one shard
+    long dataSize = sampleIndex(NB_DOCS, true);
+    //TODO debug bulk listenner, sleep is in the meantime
+    Thread.sleep(30000);
+    PipelineOptions options = PipelineOptionsFactory.create();
+    ElasticsearchIO.Read read =
+        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
+            ES_INDEX).withType(ES_TYPE);
+    BoundedElasticsearchSource initialSource = read.getSource();
+    int desiredBundleSizeBytes = 100;
+    List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
+        desiredBundleSizeBytes, options);
+    //ES creates 5 shards for that amount of data, but only one contains data, so there should be 4
+    // empty splits + data/desiredBundleSizeBytes splits
+    long expectedNbSplits = 4 + dataSize/desiredBundleSizeBytes;
+    assertEquals(expectedNbSplits, splits.size());
+    SourceTestUtils.
+        assertSourcesEqualReferenceSource(initialSource, splits, options);
+    int nonEmptySplits = 0;
+    for (BoundedSource<String> subSource : splits)
+      if (readFromSource(subSource, options).size() > 0) {
+        nonEmptySplits += 1;
+      }
+    assertEquals(expectedNbSplits - 4, nonEmptySplits);
+
+  }
+
   @After
   public void after() throws Exception {
     if (node != null) {
