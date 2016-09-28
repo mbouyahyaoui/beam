@@ -17,6 +17,12 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
+import com.google.gson.JsonObject;
+import io.searchbox.client.JestClient;
+import io.searchbox.client.JestClientFactory;
+import io.searchbox.client.JestResult;
+import io.searchbox.client.config.HttpClientConfig;
+import io.searchbox.indices.Stats;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -55,6 +61,7 @@ import java.io.File;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
@@ -105,39 +112,20 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   private final class BulkListener implements BulkProcessor.Listener {
-    private final AtomicLong pendingBulkItemCount = new AtomicLong();
-    private final int concurrentRequests;
-
-    public BulkListener(int concurrentRequests) {
-      this.concurrentRequests = concurrentRequests;
-    }
 
     @Override
-    public void beforeBulk(long executionId, BulkRequest request) {
-      pendingBulkItemCount.addAndGet(request.numberOfActions());
-    }
+    public void beforeBulk(long l, BulkRequest bulkRequest) {}
 
     @Override
-    public void afterBulk(long executionId, BulkRequest request, Throwable failure) {
-      LOGGER.warn("Can't append into Elasticsearch", failure);
-      pendingBulkItemCount.addAndGet(-request.numberOfActions());
-    }
+    public void afterBulk(long l, BulkRequest bulkRequest, BulkResponse bulkResponse) {}
 
     @Override
-    public void afterBulk(long executionId, BulkRequest request, BulkResponse response) {
-      pendingBulkItemCount.addAndGet(-response.getItems().length);
-    }
-
-    public void waitFinished() {
-      while (concurrentRequests > 0 && pendingBulkItemCount.get() > 0) {
-        LockSupport.parkNanos(1000 * 50);
-      }
-    }
+    public void afterBulk(long l, BulkRequest bulkRequest, Throwable throwable) {}
   }
 
   private long sampleIndex(long nbDocs, boolean allInOneShard) throws Exception {
     BulkProcessor bulkProcessor =
-        BulkProcessor.builder(node.client(), new BulkListener(5))
+        BulkProcessor.builder(node.client(), new BulkListener())
             .setBulkActions(100)
             .setConcurrentRequests(5)
             .setFlushInterval(TimeValue.timeValueSeconds(5))
@@ -156,9 +144,39 @@ public class ElasticsearchIOTest implements Serializable {
       else
         bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).source(source));
     }
-    bulkProcessor.close();
+    boolean hascompleted = bulkProcessor.awaitClose(6, TimeUnit.SECONDS);
+    if (!hascompleted)
+      throw (new Exception("the specified waiting time elapsed before all (concurent) bulk "
+                               + "requests complete"));
+    waitForESIndexationToFinish();
     return size;
   }
+
+  private void waitForESIndexationToFinish() throws Exception {
+    while (!isIndexingFinished(NB_DOCS))
+      Thread.sleep(1000);
+  }
+
+  private boolean isIndexingFinished(long nbDocs) throws Exception{
+    HttpClientConfig.Builder builder = new HttpClientConfig.Builder("http://" + ES_IP + ":" + ES_HTTP_PORT).multiThreaded(true);
+    JestClientFactory factory = new JestClientFactory();
+    factory.setHttpClientConfig(builder.build());
+    JestClient client = factory.getObject();
+
+    Stats stats = new Stats.Builder().addIndex(ES_INDEX).setParameter("level", "indices").build();
+    JestResult result = client.execute(stats);
+    client.shutdownClient();
+    long count = 0;
+    if (result.isSucceeded()) {
+      JsonObject jsonObject = result.getJsonObject();
+      JsonObject docs =
+          jsonObject.getAsJsonObject("indices").getAsJsonObject(ES_INDEX).getAsJsonObject
+              ("total").getAsJsonObject("docs");
+      count = docs.getAsJsonPrimitive("count").getAsLong();
+    }
+    return count == nbDocs;
+    }
+
 
   @Test
   @Category(NeedsRunner.class)
@@ -195,7 +213,7 @@ public class ElasticsearchIOTest implements Serializable {
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withQuery(
             qb.toString()).withIndex(ES_INDEX).withType(ES_TYPE));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(100L);
+    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS/10);
     pipeline.run();
   }
 
@@ -208,7 +226,7 @@ public class ElasticsearchIOTest implements Serializable {
         { "Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday", "Newton", "Bohr",
             "Galilei", "Maxwell" };
     ArrayList<String> data = new ArrayList<>();
-    for (int i = 0; i < 2000; i++) {
+    for (int i = 0; i < NB_DOCS; i++) {
       int index = i % scientists.length;
       data.add(String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i));
     }
@@ -218,15 +236,13 @@ public class ElasticsearchIOTest implements Serializable {
 
     pipeline.run();
 
-    // gives time for bulk to complete
-    Thread.sleep(5000);
-
+    waitForESIndexationToFinish();
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
-    Assert.assertEquals(2000, response.getHits().getTotalHits());
+    Assert.assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
     QueryBuilder queryBuilder = QueryBuilders.queryStringQuery("Einstein").field("scientist");
     response = node.client().prepareSearch().setQuery(queryBuilder).execute().actionGet();
-    Assert.assertEquals(200, response.getHits().getTotalHits());
+    Assert.assertEquals(NB_DOCS/10, response.getHits().getTotalHits());
   }
 
   @Test
@@ -238,33 +254,29 @@ public class ElasticsearchIOTest implements Serializable {
         { "Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday", "Newton", "Bohr",
             "Galilei", "Maxwell" };
     ArrayList<String> data = new ArrayList<>();
-    for (int i = 0; i < 2000; i++) {
+    for (int i = 0; i < NB_DOCS; i++) {
       int index = i % scientists.length;
       data.add(String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i));
     }
     PDone collection = pipeline.apply(Create.of(data)).apply(
         ElasticsearchIO.write().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE).withBatchSize(2000).withBatchSizeMegaBytes(1));
+            ES_INDEX).withType(ES_TYPE).withBatchSize(NB_DOCS).withBatchSizeMegaBytes(1));
 
     //TODO assert nb bundles == 1
     pipeline.run();
-
-    // gives time for bulk to complete
-    Thread.sleep(5000);
+    waitForESIndexationToFinish();
 
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
-    Assert.assertEquals(2000, response.getHits().getTotalHits());
+    Assert.assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
     QueryBuilder queryBuilder = QueryBuilders.queryStringQuery("Einstein").field("scientist");
     response = node.client().prepareSearch().setQuery(queryBuilder).execute().actionGet();
-    Assert.assertEquals(200, response.getHits().getTotalHits());
+    Assert.assertEquals(NB_DOCS/10, response.getHits().getTotalHits());
   }
 
   @Test
   public void testSplitsWithDesiredBundleSizeBiggerThanShardSize() throws Exception{
     sampleIndex(NB_DOCS, false);
-    //TODO debug bulk listenner, sleep is in the meantime
-    Thread.sleep(30000);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
@@ -292,8 +304,6 @@ public class ElasticsearchIOTest implements Serializable {
   public void testSplitsWithSmallerDesiredBundleSizeThanShardSize() throws Exception{
     //put all docs in one shard
     long dataSize = sampleIndex(NB_DOCS, true);
-    //TODO debug bulk listenner, sleep is in the meantime
-    Thread.sleep(30000);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
