@@ -17,30 +17,18 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
-
-import com.google.common.base.Throwables;
-import io.searchbox.client.JestClient;
-import io.searchbox.client.JestClientFactory;
-import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.core.Search;
-import io.searchbox.core.SearchResult;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.testing.NeedsRunner;
 import org.apache.beam.sdk.testing.PAssert;
+import org.apache.beam.sdk.testing.SourceTestUtils;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.util.NoopCredentialFactory;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
@@ -63,9 +51,19 @@ import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+import java.io.File;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
+import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.apache.beam.sdk.testing.SourceTestUtils.assertSourcesEqualReferenceSource;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
+
 
 /**
  * Test on {@link ElasticsearchIO}.
@@ -254,6 +252,28 @@ public class ElasticsearchIOTest implements Serializable {
     Assert.assertEquals(200, response.getHits().getTotalHits());
   }
 
+  @Test
+  public void testSplits() throws Exception{
+    sampleIndex();
+    PipelineOptions options = PipelineOptionsFactory.create();
+    ElasticsearchIO.Read read =
+        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
+            ES_INDEX).withType(ES_TYPE);
+    BoundedElasticsearchSource initialSource = read.getSource();
+    //while scroll is not merged, put a very high desiredBundleSize so that ES ahrd wwhould not
+    // be split => meaning, there will me as many sources as ES shards.
+    List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(1073741824, options);
+    assertEquals(5, splits.size());
+    SourceTestUtils.
+    assertSourcesEqualReferenceSource(initialSource, splits, options);
+    int nonEmptySplits = 0;
+    for (BoundedSource<String> subSource : splits)
+      if (readFromSource(subSource, options).size() > 0) {
+        nonEmptySplits += 1;
+      }
+    assertTrue(nonEmptySplits == 5);
+
+  }
   @After
   public void after() throws Exception {
     if (node != null) {

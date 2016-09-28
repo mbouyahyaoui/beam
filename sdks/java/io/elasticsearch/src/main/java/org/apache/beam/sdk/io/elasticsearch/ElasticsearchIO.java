@@ -149,7 +149,7 @@ public class ElasticsearchIO {
 
   }
 
-  private static class BoundedElasticsearchSource extends BoundedSource<String> {
+  protected static class BoundedElasticsearchSource extends BoundedSource<String> {
 
     private final String address;
     @Nullable
