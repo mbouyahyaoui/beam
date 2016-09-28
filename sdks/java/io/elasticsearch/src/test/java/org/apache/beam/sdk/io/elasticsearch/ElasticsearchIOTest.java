@@ -206,13 +206,22 @@ public class ElasticsearchIOTest implements Serializable {
   public void testReadWithQuery() throws Exception {
     sampleIndex(NB_DOCS, false);
 
-    QueryBuilder qb = QueryBuilders.matchQuery("scientist", "Einstein");
+    String query = "{\n"
+        + "  \"query\": {\n"
+        + "  \"match\" : {\n"
+        + "    \"scientist\" : {\n"
+        + "      \"query\" : \"Einstein\",\n"
+        + "      \"type\" : \"boolean\"\n"
+        + "    }\n"
+        + "  }\n"
+        + "  }\n"
+        + "}";
 
     Pipeline pipeline = TestPipeline.create();
 
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withQuery(
-            qb.toString()).withIndex(ES_INDEX).withType(ES_TYPE));
+            query).withIndex(ES_INDEX).withType(ES_TYPE));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS/10);
     pipeline.run();
   }
