@@ -93,7 +93,7 @@ import org.apache.beam.sdk.values.PDone;
 public class ElasticsearchIO {
 
   public static Write write() {
-    return new Write(new Write.Writer(null, null, null, null, null, 1024L, 1));
+    return new Write(new Write.Writer(null, null, null, null, null, 1000L, 5));
   }
 
   public static Read read() {

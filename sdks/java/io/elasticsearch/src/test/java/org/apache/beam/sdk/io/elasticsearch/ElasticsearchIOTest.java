@@ -269,9 +269,9 @@ public class ElasticsearchIOTest implements Serializable {
     }
     PDone collection = pipeline.apply(Create.of(data)).apply(
         ElasticsearchIO.write().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE).withBatchSize(NB_DOCS).withBatchSizeMegaBytes(1));
+            ES_INDEX).withType(ES_TYPE).withBatchSize(NB_DOCS/2).withBatchSizeMegaBytes(1));
 
-    //TODO assert nb bundles == 1
+    //TODO assert nb bundles == 2
     pipeline.run();
     waitForESIndexationToFinish();
 
