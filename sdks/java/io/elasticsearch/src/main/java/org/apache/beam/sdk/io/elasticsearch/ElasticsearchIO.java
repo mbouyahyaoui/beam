@@ -262,7 +262,8 @@ public class ElasticsearchIO {
               value.get(0).getAsJsonObject().getAsJsonObject("store").getAsJsonPrimitive(
                   "size_in_bytes").getAsLong();
           String shardPreference = "_shards:" + shardId;
-          long nbBundles = shardSize / desiredBundleSizeBytes;
+          float nbBundlesFloat = (float) shardSize / desiredBundleSizeBytes;
+          int nbBundles = (int)Math.ceil(nbBundlesFloat);
           if (nbBundles <= 1)
           //read all docs in the shard
           {
@@ -370,7 +371,6 @@ public class ElasticsearchIO {
       // init scroll
       scrollKeepalive = source.scrollKeepalive;
       searchBuilder.setParameter(Parameters.SCROLL, scrollKeepalive);
-      //TODO don't miss first one
       searchBuilder.setParameter(Parameters.SIZE, 1);
       if (source.sizeToRead != null) {
         //we are in the case of splitting a shard
