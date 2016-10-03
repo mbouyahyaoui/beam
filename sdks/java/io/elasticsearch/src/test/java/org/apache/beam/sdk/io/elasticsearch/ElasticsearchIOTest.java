@@ -289,7 +289,7 @@ public class ElasticsearchIOTest implements Serializable {
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE);
+            ES_INDEX).withType(ES_TYPE).withScrollKeepalive("10m");
     BoundedElasticsearchSource initialSource = read.getSource();
     //ES creates 5 shards for that amount of data, so there should be 5 split because bundlesize
     // is > to shard size
@@ -321,7 +321,8 @@ public class ElasticsearchIOTest implements Serializable {
     int desiredBundleSizeBytes = 100;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
-    //ES creates 5 shards for that amount of data, but only one contains data, so there should be 4
+    //ES creates 5 shards for that amount of data, but only one contains data (because forced
+    // routing), so there should be 4
     // empty splits + data/desiredBundleSizeBytes splits
     long expectedNbSplits = 4 + dataSize/desiredBundleSizeBytes;
     assertEquals(expectedNbSplits, splits.size());

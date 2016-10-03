@@ -25,11 +25,7 @@ import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.JestResult;
 import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.core.Bulk;
-import io.searchbox.core.BulkResult;
-import io.searchbox.core.Index;
-import io.searchbox.core.Search;
-import io.searchbox.core.SearchResult;
+import io.searchbox.core.*;
 import io.searchbox.indices.Stats;
 import io.searchbox.params.Parameters;
 
@@ -97,7 +93,8 @@ public class ElasticsearchIO {
   }
 
   public static Read read() {
-    return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null, null, null));
+    return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null, null,
+                                                   null, "5m"));
   }
 
   private ElasticsearchIO() {
@@ -130,6 +127,10 @@ public class ElasticsearchIO {
 
     public Read withType(String type) {
       return new Read(source.withType(type));
+    }
+
+    public Read withScrollKeepalive(String scrollKeepalive) {
+      return new Read(source.withScrollKeepalive(scrollKeepalive));
     }
 
     private final BoundedElasticsearchSource source;
@@ -165,10 +166,13 @@ public class ElasticsearchIO {
     private final String shardPreference;
     @Nullable
     private final Long sizeToRead;
+    @Nullable
+    private final String scrollKeepalive;
 
     private BoundedElasticsearchSource(String address, String username, String password,
                                        String query, String index, String type,
-                                       String shardPreference, Long sizeToRead) {
+                                       String shardPreference, Long sizeToRead, String
+                                           scrollKeepalive) {
       this.address = address;
       this.username = username;
       this.password = password;
@@ -177,46 +181,52 @@ public class ElasticsearchIO {
       this.type = type;
       this.shardPreference = shardPreference;
       this.sizeToRead = sizeToRead;
+      this.scrollKeepalive = scrollKeepalive;
     }
 
     public BoundedElasticsearchSource withAddress(String address) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead);
+                                            shardPreference, sizeToRead, scrollKeepalive);
     }
 
     public BoundedElasticsearchSource withUsername(String username) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead);
+                                            shardPreference, sizeToRead, scrollKeepalive);
     }
 
     public BoundedElasticsearchSource withPassword(String password) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead);
+                                            shardPreference, sizeToRead, scrollKeepalive);
     }
 
     public BoundedElasticsearchSource withQuery(String query) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead);
+                                            shardPreference, sizeToRead, scrollKeepalive);
     }
 
     public BoundedElasticsearchSource withIndex(String index) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead);
+                                            shardPreference, sizeToRead, scrollKeepalive);
     }
 
     public BoundedElasticsearchSource withType(String type) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead);
+                                            shardPreference, sizeToRead, scrollKeepalive);
     }
 
     public BoundedElasticsearchSource withShardPreference(String shardPreference) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead);
+                                            shardPreference, sizeToRead, scrollKeepalive);
     }
 
     public BoundedElasticsearchSource withSizeToRead(Long sizeToRead) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead);
+                                            shardPreference, sizeToRead, scrollKeepalive);
+    }
+
+    public BoundedElasticsearchSource withScrollKeepalive(String scrollKeepalive) {
+      return new BoundedElasticsearchSource(address, username, password, query, index, type,
+                                            shardPreference, sizeToRead, scrollKeepalive);
     }
 
     private JestClient createClient() throws Exception {
@@ -251,18 +261,18 @@ public class ElasticsearchIO {
           long shardSize =
               value.get(0).getAsJsonObject().getAsJsonObject("store").getAsJsonPrimitive(
                   "size_in_bytes").getAsLong();
-          String shardPreference = "_shards:" +  shardId;
+          String shardPreference = "_shards:" + shardId;
           long nbBundles = shardSize / desiredBundleSizeBytes;
           if (nbBundles <= 1)
-            //read all docs in the shard
+          //read all docs in the shard
           {
             sources.add(this.withShardPreference(shardPreference));
-          }
-          else {
+          } else {
             // split the shard into nbBundles chunks of desiredBundleSizeBytes by creating
             // nbBundles sources
             for (int i = 1; i <= nbBundles; i++) {
-              sources.add(this.withShardPreference(shardPreference).withSizeToRead(desiredBundleSizeBytes));
+              sources.add(
+                  this.withShardPreference(shardPreference).withSizeToRead(desiredBundleSizeBytes));
             }
 
           }
@@ -284,18 +294,14 @@ public class ElasticsearchIO {
       client.shutdownClient();
 
       if (result.isSucceeded()) {
-        return getSizeOfIndex(result);
+        JsonObject jsonResult = result.getJsonObject();
+        JsonObject statsJson =
+            jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("total");
+        JsonObject storeJson = statsJson.getAsJsonObject("store");
+        return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
       }
 
       return 0;
-    }
-
-    private long getSizeOfIndex(JestResult result) {
-      JsonObject jsonResult = result.getJsonObject();
-      JsonObject statsJson =
-          jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("total");
-      JsonObject storeJson = statsJson.getAsJsonObject("store");
-      return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
 
     @Override
@@ -312,6 +318,7 @@ public class ElasticsearchIO {
     public void validate() {
       Preconditions.checkNotNull(address, "address");
       Preconditions.checkNotNull(index, "index");
+      //TODO type mandatory.
     }
 
     @Override
@@ -326,8 +333,11 @@ public class ElasticsearchIO {
     private final BoundedElasticsearchSource source;
 
     private JestClient client;
-    private List<String> result;
     private String current;
+    private String scrollId;
+    private String scrollKeepalive;
+    private long desiredNbDocs;
+    private long nbDocsRead;
 
     public BoundedElasticsearchReader(BoundedElasticsearchSource source) {
       this.source = source;
@@ -355,15 +365,19 @@ public class ElasticsearchIO {
 
       Search.Builder searchBuilder = new Search.Builder(query);
       if (source.shardPreference != null) {
-        searchBuilder.setParameter("preference",source.shardPreference);
+        searchBuilder.setParameter("preference", source.shardPreference);
       }
-    //TODO scroll, merge with JB
-
+      // init scroll
+      scrollKeepalive = source.scrollKeepalive;
+      searchBuilder.setParameter(Parameters.SCROLL, scrollKeepalive);
+      //TODO don't miss first one
+      searchBuilder.setParameter(Parameters.SIZE, 1);
       if (source.sizeToRead != null) {
-        searchBuilder.setParameter(Parameters.SIZE, convertBytesToNbDocs(source.sizeToRead));
+        //we are in the case of splitting a shard
+        nbDocsRead = 0;
+        desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
       }
-      else
-        searchBuilder.setParameter(Parameters.SIZE, ES_INDEX_MAX_RESULT_WINDOW);
+      //TODO index and type mandatory
       if (source.index != null) {
         searchBuilder.addIndex(source.index);
       }
@@ -371,27 +385,43 @@ public class ElasticsearchIO {
         searchBuilder.addType(source.type);
       }
       Search search = searchBuilder.build();
-
       SearchResult searchResult = client.execute(search);
-      result = searchResult.getSourceAsStringList();
-
-      return advance();
+      return readResponse(searchResult);
+      //      return advance();
     }
 
     private long convertBytesToNbDocs(Long size) {
       //TODO, maybe with size / avg(sizeOfDoc)?
-      return ES_INDEX_MAX_RESULT_WINDOW;
+      return size / 30;
     }
 
     @Override
     public boolean advance() throws IOException {
-      //TODO get scroll id of last response and use it to get next bunch of data
-      if (result != null && result.size() > 0) {
-        current = result.remove(0);
-        return true;
-      } else {
+      //request the scroll (with id) with size=1 and count ndDocsRead
+      SearchScroll searchScroll = new SearchScroll.Builder(scrollId, scrollKeepalive)
+          .setParameter(Parameters.SIZE, 1)
+          .build();
+      JestResult searchResult = client.execute(searchScroll);
+      return readResponse(searchResult);
+    }
+
+    private boolean readResponse(JestResult searchResult) throws IOException {
+      if (!searchResult.isSucceeded()) {
+        throw new IOException("cannot perform scroll request on ES");
+      }
+      scrollId = searchResult.getValue("_scroll_id").toString();
+      current = searchResult.getSourceAsString();
+
+      //stop if no more data
+      if (searchResult.getJsonObject().getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
         return false;
       }
+      nbDocsRead++;
+      //stop if we need to split the shard and we have reached the desiredBundleSize
+      if ((source.sizeToRead != null) && (nbDocsRead == desiredNbDocs))
+        return false;
+      else
+        return true;
     }
 
     @Override
@@ -402,6 +432,14 @@ public class ElasticsearchIO {
     @Override
     public void close() throws IOException {
       if (client != null) {
+
+        //TODO do not clear all scroll (if other scrolls not related to beam exist on ES
+        //TODO migration to jest 2.0.3 (ClearScroll api)
+/*
+        io.searchbox.core.ClearScroll clearScroll = new ClearScroll.Builder().build();
+        result = client.execute(clearScroll);
+*/
+
         client.shutdownClient();
       }
     }
@@ -485,37 +523,37 @@ public class ElasticsearchIO {
 
       public Writer withAddress(String address) {
         return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
+                          batchSizeMegaBytes);
       }
 
       public Writer withUsername(String username) {
         return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
+                          batchSizeMegaBytes);
       }
 
       public Writer withPassword(String password) {
         return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
+                          batchSizeMegaBytes);
       }
 
       public Writer withIndex(String index) {
         return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
+                          batchSizeMegaBytes);
       }
 
       public Writer withType(String type) {
         return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
+                          batchSizeMegaBytes);
       }
 
       public Writer withBatchSize(long batchSize) {
         return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
+                          batchSizeMegaBytes);
       }
 
       public Writer withBatchSizeMegaBytes(int batchSizeMegaBytes) {
         return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
+                          batchSizeMegaBytes);
       }
 
       public void validate() {
@@ -569,7 +607,7 @@ public class ElasticsearchIO {
               System.out.println(item.toString());
             }
             throw new IllegalStateException("Can't update Elasticsearch: "
-                + result.getErrorMessage());
+                                                + result.getErrorMessage());
           }
           batch.clear();
         }
