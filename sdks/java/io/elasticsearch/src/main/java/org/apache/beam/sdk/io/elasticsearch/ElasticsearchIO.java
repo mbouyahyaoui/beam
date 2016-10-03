@@ -94,7 +94,7 @@ public class ElasticsearchIO {
 
   public static Read read() {
     return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null, null,
-                                                   null, "5m"));
+                                                   null, "5m", null));
   }
 
   private ElasticsearchIO() {
@@ -168,11 +168,13 @@ public class ElasticsearchIO {
     private final Long sizeToRead;
     @Nullable
     private final String scrollKeepalive;
+    @Nullable
+    private final Integer offset;
 
     private BoundedElasticsearchSource(String address, String username, String password,
                                        String query, String index, String type,
                                        String shardPreference, Long sizeToRead, String
-                                           scrollKeepalive) {
+                                           scrollKeepalive, Integer offset) {
       this.address = address;
       this.username = username;
       this.password = password;
@@ -182,53 +184,58 @@ public class ElasticsearchIO {
       this.shardPreference = shardPreference;
       this.sizeToRead = sizeToRead;
       this.scrollKeepalive = scrollKeepalive;
+      this.offset = offset;
     }
 
     public BoundedElasticsearchSource withAddress(String address) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
     public BoundedElasticsearchSource withUsername(String username) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
     public BoundedElasticsearchSource withPassword(String password) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
     public BoundedElasticsearchSource withQuery(String query) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
     public BoundedElasticsearchSource withIndex(String index) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
     public BoundedElasticsearchSource withType(String type) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
     public BoundedElasticsearchSource withShardPreference(String shardPreference) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
     public BoundedElasticsearchSource withSizeToRead(Long sizeToRead) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
     public BoundedElasticsearchSource withScrollKeepalive(String scrollKeepalive) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive);
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
+    public BoundedElasticsearchSource withOffset(Integer offset) {
+      return new BoundedElasticsearchSource(address, username, password, query, index, type,
+                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+    }
     private JestClient createClient() throws Exception {
       HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address).multiThreaded(true);
       if (username != null) {
@@ -271,9 +278,10 @@ public class ElasticsearchIO {
           } else {
             // split the shard into nbBundles chunks of desiredBundleSizeBytes by creating
             // nbBundles sources
-            for (int i = 1; i <= nbBundles; i++) {
+            for (int i = 0; i < nbBundles; i++) {
               sources.add(
-                  this.withShardPreference(shardPreference).withSizeToRead(desiredBundleSizeBytes));
+                  this.withShardPreference(shardPreference).withSizeToRead
+                      (desiredBundleSizeBytes).withOffset(i));
             }
 
           }
@@ -376,6 +384,7 @@ public class ElasticsearchIO {
         //we are in the case of splitting a shard
         nbDocsRead = 0;
         desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
+        searchBuilder.setParameter(Parameters.FROM, desiredNbDocs * source.offset);
       }
       //TODO index and type mandatory
       if (source.index != null) {
@@ -387,12 +396,13 @@ public class ElasticsearchIO {
       Search search = searchBuilder.build();
       SearchResult searchResult = client.execute(search);
       return readResponse(searchResult);
-      //      return advance();
     }
 
     private long convertBytesToNbDocs(Long size) {
       //TODO, maybe with size / avg(sizeOfDoc)?
-      return size / 30;
+      float nbDocsFloat = (float)size / 30;
+      int nbDocs = (int)Math.ceil(nbDocsFloat);
+      return nbDocs;
     }
 
     @Override
