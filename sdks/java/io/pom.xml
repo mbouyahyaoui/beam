@@ -42,6 +42,7 @@
     <module>jdbc</module>
     <module>elasticsearch</module>
     <module>mqtt</module>
+    <module>parquet</module>
   </modules>
 
 </project>
