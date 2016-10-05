@@ -236,7 +236,7 @@ public class ElasticsearchIO {
                                             shardPreference, sizeToRead, scrollKeepalive, offset);
     }
 
-    private JestClient createClient() throws Exception {
+    private JestClient createClient() {
       HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address).multiThreaded(true);
       if (username != null) {
         builder = builder.defaultCredentials(username, password);
@@ -296,21 +296,41 @@ public class ElasticsearchIO {
     @Override
     public long getEstimatedSizeBytes(PipelineOptions options) throws Exception {
       JestClient client = createClient();
-
-      Stats stats = new Stats.Builder().build();
+      Stats stats = new Stats.Builder().addIndex(index).build();
       JestResult result = client.execute(stats);
-
       client.shutdownClient();
-
       if (result.isSucceeded()) {
+        return getIndexSize(result);
+      }
+      return 0;
+    }
+
+    public long getAverageDocSize() throws IOException {
+      JestClient client = createClient();
+      Stats stats = new Stats.Builder().addIndex(index).build();
+      JestResult result = client.execute(stats);
+      client.shutdownClient();
+      if (!result.isSucceeded()) {
+        throw new IOException("Cannot get average size of doc in index " + index);
+      } else {
         JsonObject jsonResult = result.getJsonObject();
         JsonObject statsJson =
             jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("total");
         JsonObject storeJson = statsJson.getAsJsonObject("store");
-        return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
+        long sizeOfIndex = storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
+        JsonObject docsJson = statsJson.getAsJsonObject("docs");
+        long nbDocsInIndex = docsJson.getAsJsonPrimitive("count").getAsLong();
+        return sizeOfIndex / nbDocsInIndex;
       }
 
-      return 0;
+    }
+
+    private long getIndexSize(JestResult result) {
+      JsonObject jsonResult = result.getJsonObject();
+      JsonObject statsJson =
+          jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("total");
+      JsonObject storeJson = statsJson.getAsJsonObject("store");
+      return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
 
     @Override
@@ -386,10 +406,10 @@ public class ElasticsearchIO {
       return advance();
     }
 
-    private long convertBytesToNbDocs(Long size) {
-      //TODO, maybe with size / avg(sizeOfDoc)?
-      float nbDocsFloat = (float) size / 30;
-      int nbDocs = (int) Math.ceil(nbDocsFloat);
+    private long convertBytesToNbDocs(Long size) throws IOException {
+      long averageDocSize = source.getAverageDocSize();
+      float nbDocsFloat = (float) size / averageDocSize;
+      long nbDocs = (long) Math.ceil(nbDocsFloat);
       return nbDocs;
     }
 

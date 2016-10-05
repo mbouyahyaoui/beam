@@ -301,12 +301,24 @@ public class ElasticsearchIOTest implements Serializable {
     int expectedNbSplits = 5;
     assertEquals(expectedNbSplits, splits.size());
     //non empty splits cannot be tested because ES car chose not to put docs in some shards
-    // leading to empty splits. So the test whould not be deterministic
+    // leading to empty splits. So the test would not be deterministic
+  }
+
+  @Test
+  public void testSizes() throws Exception {
+    long dataSize = sampleIndex(NB_DOCS);
+    PipelineOptions options = PipelineOptionsFactory.create();
+    ElasticsearchIO.Read read =
+        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
+            ES_INDEX).withType(ES_TYPE).withScrollKeepalive("10m");
+    BoundedElasticsearchSource initialSource = read.getSource();
+    assertEquals("Wrong estimated size", 260, initialSource.getEstimatedSizeBytes
+        (options));
+    assertEquals("Wrong average doc size", 26, initialSource.getAverageDocSize());
   }
 
   @Test
   public void testSplitsWithSmallerDesiredBundleSizeThanShardSize() throws Exception {
-    //put all docs in one shard
     long dataSize = sampleIndex(NB_DOCS);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
@@ -321,7 +333,7 @@ public class ElasticsearchIOTest implements Serializable {
     long expectedNbSplits = 9;
     assertEquals(expectedNbSplits, splits.size());
     //non empty splits cannot be tested because ES car chose not to put docs in some shards
-    // leading to empty splits. So the test whould not be deterministic
+    // leading to empty splits. So the test would not be deterministic
   }
 
   @After
