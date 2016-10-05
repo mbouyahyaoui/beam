@@ -85,12 +85,13 @@ public class ElasticsearchIOTest implements Serializable {
   public static final String ES_IP = "localhost";
   public static final String ES_HTTP_PORT = "9201";
   public static final String ES_TCP_PORT = "9301";
-  private static final long NB_DOCS = 3L;
+  private static final long NB_DOCS = 10L;
 
   private transient Node node;
 
   @Before
   public void before() throws Exception {
+    //TODO initialise once before all tests (@beforeclass)
     LOGGER.info("Starting embedded Elasticsearch instance");
     FileUtils.deleteDirectory(new File(DATA_DIRECTORY));
     Settings.Builder settingsBuilder =
@@ -283,7 +284,7 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   @Test
-  public void testSplitsWithDesiredBundleSizeBiggerThanShardSize() throws Exception {
+  public void testSplitsWithBiggerDesiredBundleSizeThanShardSize() throws Exception {
     sampleIndex(NB_DOCS);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
@@ -299,13 +300,8 @@ public class ElasticsearchIOTest implements Serializable {
         assertSourcesEqualReferenceSource(initialSource, splits, options);
     int expectedNbSplits = 5;
     assertEquals(expectedNbSplits, splits.size());
-    int nonEmptySplits = 0;
-    for (BoundedSource<String> subSource : splits)
-      if (readFromSource(subSource, options).size() > 0) {
-        nonEmptySplits += 1;
-      }
-    assertEquals(expectedNbSplits, nonEmptySplits);
-
+    //non empty splits cannot be tested because ES car chose not to put docs in some shards
+    // leading to empty splits. So the test whould not be deterministic
   }
 
   @Test
@@ -324,13 +320,8 @@ public class ElasticsearchIOTest implements Serializable {
         assertSourcesEqualReferenceSource(initialSource, splits, options);
     long expectedNbSplits = 9;
     assertEquals(expectedNbSplits, splits.size());
-    int nonEmptySplits = 0;
-    for (BoundedSource<String> subSource : splits)
-        if (readFromSource(subSource, options).size() > 0) {
-        nonEmptySplits += 1;
-      }
-    assertEquals(3, nonEmptySplits);
-
+    //non empty splits cannot be tested because ES car chose not to put docs in some shards
+    // leading to empty splits. So the test whould not be deterministic
   }
 
   @After

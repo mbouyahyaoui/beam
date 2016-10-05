@@ -160,7 +160,6 @@ public class ElasticsearchIO {
     @Nullable
     private final String query;
     private final String index;
-    @Nullable
     private final String type;
     @Nullable
     private final String shardPreference;
@@ -326,9 +325,9 @@ public class ElasticsearchIO {
 
     @Override
     public void validate() {
-      Preconditions.checkNotNull(address, "address");
-      Preconditions.checkNotNull(index, "index");
-      //TODO type mandatory.
+      Preconditions.checkNotNull(address, "address is a mandatory parameter");
+      Preconditions.checkNotNull(index, "index is a mandatory parameter");
+      Preconditions.checkNotNull(type, "type is a mandatory parameter");
     }
 
     @Override
@@ -376,20 +375,14 @@ public class ElasticsearchIO {
       if (source.shardPreference != null) {
         searchBuilder.setParameter("preference", source.shardPreference);
       }
-      // init scroll
       searchBuilder.setParameter(Parameters.SIZE, 1);
       if (source.sizeToRead != null) {
         //we are in the case of splitting a shard
         nbDocsRead = 0;
         desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
       }
-      //TODO index and type mandatory
-      if (source.index != null) {
-        searchBuilder.addIndex(source.index);
-      }
-      if (source.type != null) {
-        searchBuilder.addType(source.type);
-      }
+      searchBuilder.addIndex(source.index);
+      searchBuilder.addType(source.type);
       return advance();
     }
 
@@ -403,11 +396,12 @@ public class ElasticsearchIO {
     @Override
     public boolean advance() throws IOException {
       long from;
-      if (source.sizeToRead != null)
+      if (source.sizeToRead != null) {
         //we are in the case of splitting a shard
         from = (desiredNbDocs * source.offset) + nbDocsRead;
-      else
+      } else {
         from = nbDocsRead;
+      }
       searchBuilder.setParameter(Parameters.FROM, from);
       Search search = searchBuilder.build();
       SearchResult searchResult = client.execute(search);
@@ -435,14 +429,6 @@ public class ElasticsearchIO {
     @Override
     public void close() throws IOException {
       if (client != null) {
-
-        //TODO do not clear all scroll (if other scrolls not related to beam exist on ES
-        //TODO migration to jest 2.0.3 (ClearScroll api)
-/*
-        io.searchbox.core.ClearScroll clearScroll = new ClearScroll.Builder().build();
-        result = client.execute(clearScroll);
-*/
-
         client.shutdownClient();
       }
     }
