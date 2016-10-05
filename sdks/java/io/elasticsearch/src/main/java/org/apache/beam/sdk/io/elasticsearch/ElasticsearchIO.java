@@ -94,7 +94,7 @@ public class ElasticsearchIO {
 
   public static Read read() {
     return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null, null,
-                                                   null, "5m", null));
+                                                   null, null));
   }
 
   private ElasticsearchIO() {
@@ -127,10 +127,6 @@ public class ElasticsearchIO {
 
     public Read withType(String type) {
       return new Read(source.withType(type));
-    }
-
-    public Read withScrollKeepalive(String scrollKeepalive) {
-      return new Read(source.withScrollKeepalive(scrollKeepalive));
     }
 
     private final BoundedElasticsearchSource source;
@@ -166,14 +162,12 @@ public class ElasticsearchIO {
     @Nullable
     private final Long sizeToRead;
     @Nullable
-    private final String scrollKeepalive;
-    @Nullable
     private final Integer offset;
 
     private BoundedElasticsearchSource(String address, String username, String password,
                                        String query, String index, String type,
-                                       String shardPreference, Long sizeToRead, String
-                                           scrollKeepalive, Integer offset) {
+                                       String shardPreference, Long sizeToRead,
+                                            Integer offset) {
       this.address = address;
       this.username = username;
       this.password = password;
@@ -182,58 +176,52 @@ public class ElasticsearchIO {
       this.type = type;
       this.shardPreference = shardPreference;
       this.sizeToRead = sizeToRead;
-      this.scrollKeepalive = scrollKeepalive;
       this.offset = offset;
     }
 
     public BoundedElasticsearchSource withAddress(String address) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead,  offset);
     }
 
     public BoundedElasticsearchSource withUsername(String username) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead,  offset);
     }
 
     public BoundedElasticsearchSource withPassword(String password) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withQuery(String query) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withIndex(String index) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withType(String type) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withShardPreference(String shardPreference) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withSizeToRead(Long sizeToRead) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
-    }
-
-    public BoundedElasticsearchSource withScrollKeepalive(String scrollKeepalive) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead,  offset);
     }
 
     public BoundedElasticsearchSource withOffset(Integer offset) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, scrollKeepalive, offset);
+                                            shardPreference, sizeToRead,  offset);
     }
 
     private JestClient createClient() {

@@ -289,7 +289,7 @@ public class ElasticsearchIOTest implements Serializable {
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE).withScrollKeepalive("10m");
+            ES_INDEX).withType(ES_TYPE);
     BoundedElasticsearchSource initialSource = read.getSource();
     //ES creates 5 shards for that amount of data, so there should be 5 split because bundlesize
     // is > to shard size
@@ -310,7 +310,7 @@ public class ElasticsearchIOTest implements Serializable {
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE).withScrollKeepalive("10m");
+            ES_INDEX).withType(ES_TYPE);
     BoundedElasticsearchSource initialSource = read.getSource();
     assertEquals("Wrong estimated size", 260, initialSource.getEstimatedSizeBytes
         (options));
@@ -323,7 +323,7 @@ public class ElasticsearchIOTest implements Serializable {
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE).withScrollKeepalive("10m");
+            ES_INDEX).withType(ES_TYPE);
     BoundedElasticsearchSource initialSource = read.getSource();
     long desiredBundleSizeBytes = 60;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
