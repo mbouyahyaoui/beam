@@ -236,6 +236,7 @@ public class ElasticsearchIO {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
                                             shardPreference, sizeToRead, scrollKeepalive, offset);
     }
+
     private JestClient createClient() throws Exception {
       HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address).multiThreaded(true);
       if (username != null) {
@@ -270,7 +271,7 @@ public class ElasticsearchIO {
                   "size_in_bytes").getAsLong();
           String shardPreference = "_shards:" + shardId;
           float nbBundlesFloat = (float) shardSize / desiredBundleSizeBytes;
-          int nbBundles = (int)Math.ceil(nbBundlesFloat);
+          int nbBundles = (int) Math.ceil(nbBundlesFloat);
           if (nbBundles <= 1)
           //read all docs in the shard
           {
@@ -343,10 +344,9 @@ public class ElasticsearchIO {
 
     private JestClient client;
     private String current;
-    private String scrollId;
-    private String scrollKeepalive;
     private long desiredNbDocs;
     private long nbDocsRead;
+    private Search.Builder searchBuilder;
 
     public BoundedElasticsearchReader(BoundedElasticsearchSource source) {
       this.source = source;
@@ -372,19 +372,16 @@ public class ElasticsearchIO {
             + "}";
       }
 
-      Search.Builder searchBuilder = new Search.Builder(query);
+      searchBuilder = new Search.Builder(query);
       if (source.shardPreference != null) {
         searchBuilder.setParameter("preference", source.shardPreference);
       }
       // init scroll
-      scrollKeepalive = source.scrollKeepalive;
-      searchBuilder.setParameter(Parameters.SCROLL, scrollKeepalive);
       searchBuilder.setParameter(Parameters.SIZE, 1);
       if (source.sizeToRead != null) {
         //we are in the case of splitting a shard
         nbDocsRead = 0;
         desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
-        searchBuilder.setParameter(Parameters.FROM, desiredNbDocs * source.offset);
       }
       //TODO index and type mandatory
       if (source.index != null) {
@@ -393,39 +390,35 @@ public class ElasticsearchIO {
       if (source.type != null) {
         searchBuilder.addType(source.type);
       }
-      Search search = searchBuilder.build();
-      SearchResult searchResult = client.execute(search);
-      return readResponse(searchResult);
+      return advance();
     }
 
     private long convertBytesToNbDocs(Long size) {
       //TODO, maybe with size / avg(sizeOfDoc)?
-      float nbDocsFloat = (float)size / 30;
-      int nbDocs = (int)Math.ceil(nbDocsFloat);
+      float nbDocsFloat = (float) size / 30;
+      int nbDocs = (int) Math.ceil(nbDocsFloat);
       return nbDocs;
     }
 
     @Override
     public boolean advance() throws IOException {
-      //request the scroll (with id) with size=1 and count ndDocsRead
-      SearchScroll searchScroll = new SearchScroll.Builder(scrollId, scrollKeepalive)
-          .setParameter(Parameters.SIZE, 1)
-          .build();
-      JestResult searchResult = client.execute(searchScroll);
-      return readResponse(searchResult);
-    }
-
-    private boolean readResponse(JestResult searchResult) throws IOException {
+      long from;
+      if (source.sizeToRead != null)
+        //we are in the case of splitting a shard
+        from = (desiredNbDocs * source.offset) + nbDocsRead;
+      else
+        from = nbDocsRead;
+      searchBuilder.setParameter(Parameters.FROM, from);
+      Search search = searchBuilder.build();
+      SearchResult searchResult = client.execute(search);
       if (!searchResult.isSucceeded()) {
         throw new IOException("cannot perform scroll request on ES");
       }
-      scrollId = searchResult.getValue("_scroll_id").toString();
-      current = searchResult.getSourceAsString();
-
       //stop if no more data
       if (searchResult.getJsonObject().getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
         return false;
       }
+      current = searchResult.getSourceAsString();
       nbDocsRead++;
       //stop if we need to split the shard and we have reached the desiredBundleSize
       if ((source.sizeToRead != null) && (nbDocsRead == desiredNbDocs))

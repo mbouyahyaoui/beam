@@ -126,7 +126,7 @@ public class ElasticsearchIOTest implements Serializable {
     }
   }
 
-  private long sampleIndex(long nbDocs/*, boolean allInOneShard*/) throws Exception {
+  private long sampleIndex(long nbDocs) throws Exception {
     BulkProcessor bulkProcessor =
         BulkProcessor.builder(node.client(), new BulkListener())
             .setBulkActions(100)
@@ -141,12 +141,6 @@ public class ElasticsearchIOTest implements Serializable {
       int index = i % scientists.length;
       String source = String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i);
       size += source.getBytes().length;
-/*
-      if (allInOneShard)
-        //put all docs in one shard
-        bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).routing("oneShard").source(source));
-      else
-*/
       bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).source(source));
     }
     boolean hascompleted = bulkProcessor.awaitClose(6, TimeUnit.SECONDS);
@@ -186,7 +180,7 @@ public class ElasticsearchIOTest implements Serializable {
   @Test
   @Category(NeedsRunner.class)
   public void testRead() throws Exception {
-    sampleIndex(NB_DOCS/*, false*/);
+    sampleIndex(NB_DOCS);
     String[] args = new String[] { "--runner=FlinkRunner", "--project=test-project" };
 
     TestPipeline pipeline =
@@ -209,7 +203,7 @@ public class ElasticsearchIOTest implements Serializable {
   @Test
   @Category(NeedsRunner.class)
   public void testReadWithQuery() throws Exception {
-    sampleIndex(NB_DOCS/*, false*/);
+    sampleIndex(NB_DOCS);
 
     String query = "{\n"
         + "  \"query\": {\n"
@@ -290,7 +284,7 @@ public class ElasticsearchIOTest implements Serializable {
 
   @Test
   public void testSplitsWithDesiredBundleSizeBiggerThanShardSize() throws Exception {
-    sampleIndex(NB_DOCS/*, false*/);
+    sampleIndex(NB_DOCS);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
@@ -317,33 +311,25 @@ public class ElasticsearchIOTest implements Serializable {
   @Test
   public void testSplitsWithSmallerDesiredBundleSizeThanShardSize() throws Exception {
     //put all docs in one shard
-    long dataSize = sampleIndex(NB_DOCS/*, true*/);
+    long dataSize = sampleIndex(NB_DOCS);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
             ES_INDEX).withType(ES_TYPE).withScrollKeepalive("10m");
     BoundedElasticsearchSource initialSource = read.getSource();
-    int desiredBundleSizeBytes = 30;
+    long desiredBundleSizeBytes = 60;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
-  //TODO reactivate
-/*
     SourceTestUtils.
         assertSourcesEqualReferenceSource(initialSource, splits, options);
-*/
-    //ES creates 5 shards for that amount of data, but only one contains data (because forced
-    // routing), so there should be 4
-    // empty splits + data/desiredBundleSizeBytes splits
-    long expectedNbSplits = 4 + dataSize / desiredBundleSizeBytes;
-/*
+    long expectedNbSplits = 9;
     assertEquals(expectedNbSplits, splits.size());
-*/
     int nonEmptySplits = 0;
     for (BoundedSource<String> subSource : splits)
-      if (readFromSource(subSource, options).size() > 0) {
+        if (readFromSource(subSource, options).size() > 0) {
         nonEmptySplits += 1;
       }
-    assertEquals(expectedNbSplits - 4, nonEmptySplits);
+    assertEquals(3, nonEmptySplits);
 
   }
 
