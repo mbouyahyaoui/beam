@@ -167,7 +167,7 @@ public class ElasticsearchIO {
     private BoundedElasticsearchSource(String address, String username, String password,
                                        String query, String index, String type,
                                        String shardPreference, Long sizeToRead,
-                                            Integer offset) {
+                                       Integer offset) {
       this.address = address;
       this.username = username;
       this.password = password;
@@ -181,12 +181,12 @@ public class ElasticsearchIO {
 
     public BoundedElasticsearchSource withAddress(String address) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead,  offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withUsername(String username) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead,  offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withPassword(String password) {
@@ -216,12 +216,12 @@ public class ElasticsearchIO {
 
     public BoundedElasticsearchSource withSizeToRead(Long sizeToRead) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead,  offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withOffset(Integer offset) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead,  offset);
+                                            shardPreference, sizeToRead, offset);
     }
 
     private JestClient createClient() {
@@ -403,6 +403,10 @@ public class ElasticsearchIO {
 
     @Override
     public boolean advance() throws IOException {
+      //stop if we need to split the shard and we have reached the desiredBundleSize
+      if ((source.sizeToRead != null) && (nbDocsRead == desiredNbDocs)) {
+        return false;
+      }
       long from;
       if (source.sizeToRead != null) {
         //we are in the case of splitting a shard
@@ -414,7 +418,7 @@ public class ElasticsearchIO {
       Search search = searchBuilder.build();
       SearchResult searchResult = client.execute(search);
       if (!searchResult.isSucceeded()) {
-        throw new IOException("cannot perform scroll request on ES");
+        throw new IOException("cannot perform request on ES");
       }
       //stop if no more data
       if (searchResult.getJsonObject().getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
@@ -422,11 +426,7 @@ public class ElasticsearchIO {
       }
       current = searchResult.getSourceAsString();
       nbDocsRead++;
-      //stop if we need to split the shard and we have reached the desiredBundleSize
-      if ((source.sizeToRead != null) && (nbDocsRead == desiredNbDocs))
-        return false;
-      else
-        return true;
+      return true;
     }
 
     @Override
