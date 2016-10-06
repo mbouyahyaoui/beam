@@ -35,6 +35,7 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
@@ -294,7 +295,8 @@ public class ElasticsearchIO {
       return 0;
     }
 
-    public long getAverageDocSize() throws IOException {
+    //protected to be callable from test
+    protected long getAverageDocSize() throws IOException {
       JestClient client = createClient();
       Stats stats = new Stats.Builder().addIndex(index).build();
       JestResult result = client.execute(stats);
@@ -313,6 +315,17 @@ public class ElasticsearchIO {
         return sizeOfIndex / nbDocsInIndex;
       }
 
+    }
+
+    @Override
+    public void populateDisplayData(DisplayData.Builder builder) {
+      builder.add(DisplayData.item("address", address));
+      builder.add(DisplayData.item("index", index));
+      builder.add(DisplayData.item("type", type));
+      builder.addIfNotNull(DisplayData.item("documents offset", offset));
+      builder.addIfNotNull(DisplayData.item("query", query));
+      builder.addIfNotNull(DisplayData.item("shard", shardPreference));
+      builder.addIfNotNull(DisplayData.item("sizeToRead", sizeToRead));
     }
 
     private long getIndexSize(JestResult result) {
@@ -348,7 +361,6 @@ public class ElasticsearchIO {
 
   private static class BoundedElasticsearchReader extends BoundedSource.BoundedReader<String> {
 
-    public static final int ES_INDEX_MAX_RESULT_WINDOW = 10000;
     private final BoundedElasticsearchSource source;
 
     private JestClient client;
