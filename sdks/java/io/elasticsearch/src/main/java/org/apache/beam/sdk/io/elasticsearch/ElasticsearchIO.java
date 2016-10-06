@@ -28,12 +28,6 @@ import io.searchbox.client.config.HttpClientConfig;
 import io.searchbox.core.*;
 import io.searchbox.indices.Stats;
 import io.searchbox.params.Parameters;
-
-import java.io.IOException;
-import java.util.*;
-
-import javax.annotation.Nullable;
-
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
@@ -44,6 +38,11 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
+
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 /**
  * <p>IO to read and write data on Elasticsearch.</p>
@@ -225,7 +224,9 @@ public class ElasticsearchIO {
     }
 
     private JestClient createClient() {
-      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address).multiThreaded(true);
+      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
+          //          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
+          .multiThreaded(true);
       if (username != null) {
         builder = builder.defaultCredentials(username, password);
       }
@@ -363,6 +364,7 @@ public class ElasticsearchIO {
     @Override
     public boolean start() throws IOException {
       HttpClientConfig.Builder builder = new HttpClientConfig.Builder(source.address)
+          .maxConnectionIdleTime(5, TimeUnit.SECONDS)
           .multiThreaded(true);
       if (source.username != null) {
         builder = builder.defaultCredentials(source.username, source.password);
@@ -564,6 +566,7 @@ public class ElasticsearchIO {
       public void createClient() throws Exception {
         if (client == null) {
           HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
+              //              .maxConnectionIdleTime(10, TimeUnit.SECONDS)
               .multiThreaded(true);
           if (username != null) {
             builder = builder.defaultCredentials(username, password);
