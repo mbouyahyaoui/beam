@@ -376,7 +376,13 @@ public class ElasticsearchIO {
     @Override
     public boolean start() throws IOException {
       HttpClientConfig.Builder builder = new HttpClientConfig.Builder(source.address)
-          .maxConnectionIdleTime(5, TimeUnit.SECONDS)
+      //org.apache.http.NoHttpResponseException: ... failed to respond
+          //is still present even after upgrading jest (and http-client) and even after setting
+          // maxConnectionIdleTime as recommended
+      //https://www.bountysource.com/issues/9650168-jest-and-apache-http-client-4-4-error
+          //increasing timeout does not fix the problem either
+//          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
+//          .readTimeout(20)
           .multiThreaded(true);
       if (source.username != null) {
         builder = builder.defaultCredentials(source.username, source.password);
