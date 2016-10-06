@@ -282,7 +282,7 @@ public class ElasticsearchIO {
     }
 
     @Override
-    public long getEstimatedSizeBytes(PipelineOptions options) throws Exception {
+    public long getEstimatedSizeBytes(PipelineOptions options) throws IOException {
       JestClient client = createClient();
       Stats stats = new Stats.Builder().addIndex(index).build();
       JestResult result = client.execute(stats);
