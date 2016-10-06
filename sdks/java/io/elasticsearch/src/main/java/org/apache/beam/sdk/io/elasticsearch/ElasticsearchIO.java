@@ -303,7 +303,8 @@ public class ElasticsearchIO {
       } else {
         JsonObject jsonResult = result.getJsonObject();
         JsonObject statsJson =
-            jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("total");
+            jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject
+                ("primaries");
         JsonObject storeJson = statsJson.getAsJsonObject("store");
         long sizeOfIndex = storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
         JsonObject docsJson = statsJson.getAsJsonObject("docs");
@@ -316,7 +317,7 @@ public class ElasticsearchIO {
     private long getIndexSize(JestResult result) {
       JsonObject jsonResult = result.getJsonObject();
       JsonObject statsJson =
-          jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("total");
+          jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("primaries");
       JsonObject storeJson = statsJson.getAsJsonObject("store");
       return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
