@@ -22,7 +22,6 @@ import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.JestResult;
 import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.core.Delete;
 import io.searchbox.indices.DeleteIndex;
 import io.searchbox.indices.IndicesExists;
 import io.searchbox.indices.Stats;
@@ -62,6 +61,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -77,7 +77,7 @@ public class ElasticsearchIOTest implements Serializable {
   private static final String ES_IP = "localhost";
   private static final String ES_HTTP_PORT = "9201";
   private static final String ES_TCP_PORT = "9301";
-  private static final long NB_DOCS = 10L;
+  private static final long NB_DOCS = 400L;
 
   private static transient Node node;
 
@@ -135,27 +135,36 @@ public class ElasticsearchIOTest implements Serializable {
     if (bulkResponse.hasFailures()){
       throw new IOException("Cannot insert samples in index " + ES_INDEX);
     }
-  // not needed refresh force seems to be blocking
-        waitForESIndexationToFinish();
+    //TODO find a better way to have good size of index, waitForESIndexationToFinish gives incorrect
+//        waitForESIndexationToFinish();
+    Thread.sleep(30000);
   }
 
+  // Refresh is asynchronous in ES and there is no callback in ES to know that indexing is
+  // finished. Indexation makes index size change. So we consider it is finished when index size
+  // remains the same for some seconds iterations (cannot rely on nbDocs or indexing.index_total or
+  // refresh.total because they stay the same while size grows).
+  // It is arbitrary but more deterministic and faster than absolute Thread.sleep(10000)
   private void waitForESIndexationToFinish() throws Exception {
     long previousSize = -1;
+    int howManyTimesEqual = 0;
     while (true) {
-      long size = getIndexSize(NB_DOCS);
-      if (size == previousSize)
+      long currentSize = getIndexSize();
+      if (currentSize == previousSize){
+        howManyTimesEqual++;
+      }
+      else{
+        howManyTimesEqual = 0;
+      }
+      if (howManyTimesEqual == 2){
         break;
-      previousSize = size;
-      /*
-      TODO find better way to know indexing is done
-       nb docs is ko, indexing.index_total is ko,
-       index_time_in_milis is ko
-       */
-      Thread.sleep(2000);
+      }
+      previousSize = currentSize;
+      Thread.sleep(1000);
     }
   }
 
-  private long getIndexSize(long nbDocs) throws IOException {
+  private long getIndexSize() throws IOException {
     JestClient client = createClient();
 
     Stats stats = new Stats.Builder().addIndex(ES_INDEX).setParameter("level", "indices").build();
@@ -164,10 +173,10 @@ public class ElasticsearchIOTest implements Serializable {
     long size = 0;
     if (result.isSucceeded()) {
       JsonObject jsonObject = result.getJsonObject();
-      JsonObject docs =
+      JsonObject store =
           jsonObject.getAsJsonObject("indices").getAsJsonObject(ES_INDEX).getAsJsonObject
               ("primaries").getAsJsonObject("store");
-      size = docs.getAsJsonPrimitive("size_in_bytes").getAsLong();
+      size = store.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
     return size;
   }
@@ -302,8 +311,12 @@ public class ElasticsearchIOTest implements Serializable {
         assertSourcesEqualReferenceSource(initialSource, splits, options);
     int expectedNbSplits = 5;
     assertEquals(expectedNbSplits, splits.size());
-    //non empty splits cannot be tested because ES car chose not to put docs in some shards
-    // leading to empty splits. So the test would not be deterministic
+    int nonEmptySplits = 0;
+    for (BoundedSource<String> subSource : splits)
+      if (readFromSource(subSource, options).size() > 0) {
+        nonEmptySplits += 1;
+      }
+    assertEquals(expectedNbSplits, nonEmptySplits);
   }
 
   @Test
@@ -314,15 +327,19 @@ public class ElasticsearchIOTest implements Serializable {
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
             ES_INDEX).withType(ES_TYPE);
     BoundedElasticsearchSource initialSource = read.getSource();
-    long desiredBundleSizeBytes = 100;
+    long desiredBundleSizeBytes = 4000;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
     SourceTestUtils.
         assertSourcesEqualReferenceSource(initialSource, splits, options);
-    long expectedNbSplits = 7;
+    long expectedNbSplits = 15;
     assertEquals(expectedNbSplits, splits.size());
-    //non empty splits cannot be tested because ES car chose not to put docs in some shards
-    // leading to empty splits. So the test would not be deterministic
+    int nonEmptySplits = 0;
+    for (BoundedSource<String> subSource : splits)
+      if (readFromSource(subSource, options).size() > 0) {
+        nonEmptySplits += 1;
+      }
+    assertEquals(expectedNbSplits, nonEmptySplits);
   }
 
   @AfterClass
