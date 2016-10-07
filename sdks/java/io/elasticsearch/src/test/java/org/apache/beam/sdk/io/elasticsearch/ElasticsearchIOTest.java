@@ -22,6 +22,9 @@ import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.JestResult;
 import io.searchbox.client.config.HttpClientConfig;
+import io.searchbox.core.Delete;
+import io.searchbox.indices.DeleteIndex;
+import io.searchbox.indices.IndicesExists;
 import io.searchbox.indices.Stats;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.BoundedSource;
@@ -38,39 +41,28 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
-import org.elasticsearch.action.bulk.BulkProcessor;
-import org.elasticsearch.action.bulk.BulkRequest;
+import org.elasticsearch.action.bulk.BulkRequestBuilder;
 import org.elasticsearch.action.bulk.BulkResponse;
-import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.client.Client;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.node.Node;
 import org.elasticsearch.node.NodeBuilder;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
 
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
-import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.apache.beam.sdk.testing.SourceTestUtils.assertSourcesEqualReferenceSource;
-import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
 
 /**
  * Test on {@link ElasticsearchIO}.
@@ -82,18 +74,17 @@ public class ElasticsearchIOTest implements Serializable {
   private static final String DATA_DIRECTORY = "target/elasticsearch";
   public static final String ES_INDEX = "beam";
   public static final String ES_TYPE = "test";
-  public static final String ES_IP = "localhost";
-  public static final String ES_HTTP_PORT = "9201";
-  public static final String ES_TCP_PORT = "9301";
+  private static final String ES_IP = "localhost";
+  private static final String ES_HTTP_PORT = "9201";
+  private static final String ES_TCP_PORT = "9301";
   private static final long NB_DOCS = 10L;
 
-  private transient Node node;
+  private static transient Node node;
 
-  @Before
-  public void before() throws Exception {
-    //TODO initialise once before all tests (@beforeclass)
-    LOGGER.info("Starting embedded Elasticsearch instance");
+  @BeforeClass
+  public static void beforeClass() throws IOException {
     FileUtils.deleteDirectory(new File(DATA_DIRECTORY));
+    LOGGER.info("Starting embedded Elasticsearch instance");
     Settings.Builder settingsBuilder =
         Settings.settingsBuilder()
             .put("cluster.name", "beam")
@@ -112,70 +103,81 @@ public class ElasticsearchIOTest implements Serializable {
     }
   }
 
-  private final class BulkListener implements BulkProcessor.Listener {
-
-    @Override
-    public void beforeBulk(long l, BulkRequest bulkRequest) {
-    }
-
-    @Override
-    public void afterBulk(long l, BulkRequest bulkRequest, BulkResponse bulkResponse) {
-    }
-
-    @Override
-    public void afterBulk(long l, BulkRequest bulkRequest, Throwable throwable) {
+  @Before
+  public void before() throws IOException{
+    JestClient client = createClient();
+    IndicesExists indicesExists = new IndicesExists.Builder(ES_INDEX).build();
+    JestResult result1 = client.execute(indicesExists);
+    if (result1.isSucceeded()){
+      //index exsits
+      DeleteIndex deleteIndex = new DeleteIndex.Builder(ES_INDEX).build();
+      JestResult result = client.execute(deleteIndex);
+      if (!result.isSucceeded()) {
+        throw new IOException("cannot delete index " + ES_INDEX);
+      }
     }
   }
 
-  private long sampleIndex(long nbDocs) throws Exception {
-    BulkProcessor bulkProcessor =
-        BulkProcessor.builder(node.client(), new BulkListener())
-            .setBulkActions(100)
-            .setConcurrentRequests(5)
-            .setFlushInterval(TimeValue.timeValueSeconds(5))
-            .build();
+  private void sampleIndex(long nbDocs) throws Exception {
+    Client client = node.client();
+    final BulkRequestBuilder bulkRequestBuilder = client.prepareBulk().setRefresh(true);
+
     String[] scientists =
         { "Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday", "Newton", "Bohr",
             "Galilei", "Maxwell" };
-    long size = 0;
     for (int i = 0; i < nbDocs; i++) {
       int index = i % scientists.length;
       String source = String.format("{\"scientist\":\"%s\", \"id\":%d}", scientists[index], i);
-      size += source.getBytes().length;
-      bulkProcessor.add(new IndexRequest(ES_INDEX, ES_TYPE).source(source));
+      bulkRequestBuilder.add(client.prepareIndex(ES_INDEX, ES_TYPE, null).setSource
+          (source));
     }
-    boolean hascompleted = bulkProcessor.awaitClose(6, TimeUnit.SECONDS);
-    if (!hascompleted)
-      throw (new Exception("the specified waiting time elapsed before all (concurent) bulk "
-                               + "requests complete"));
-    waitForESIndexationToFinish();
-    return size;
+    final BulkResponse bulkResponse = bulkRequestBuilder.execute().actionGet();
+    if (bulkResponse.hasFailures()){
+      throw new IOException("Cannot insert samples in index " + ES_INDEX);
+    }
+  // not needed refresh force seems to be blocking
+        waitForESIndexationToFinish();
   }
 
   private void waitForESIndexationToFinish() throws Exception {
-    while (!isIndexingFinished(NB_DOCS))
-      Thread.sleep(1000);
+    long previousSize = -1;
+    while (true) {
+      long size = getIndexSize(NB_DOCS);
+      if (size == previousSize)
+        break;
+      previousSize = size;
+      /*
+      TODO find better way to know indexing is done
+       nb docs is ko, indexing.index_total is ko,
+       index_time_in_milis is ko
+       */
+      Thread.sleep(2000);
+    }
   }
 
-  private boolean isIndexingFinished(long nbDocs) throws Exception {
-    HttpClientConfig.Builder builder =
-        new HttpClientConfig.Builder("http://" + ES_IP + ":" + ES_HTTP_PORT).multiThreaded(true);
-    JestClientFactory factory = new JestClientFactory();
-    factory.setHttpClientConfig(builder.build());
-    JestClient client = factory.getObject();
+  private long getIndexSize(long nbDocs) throws IOException {
+    JestClient client = createClient();
 
     Stats stats = new Stats.Builder().addIndex(ES_INDEX).setParameter("level", "indices").build();
     JestResult result = client.execute(stats);
     client.shutdownClient();
-    long count = 0;
+    long size = 0;
     if (result.isSucceeded()) {
       JsonObject jsonObject = result.getJsonObject();
       JsonObject docs =
           jsonObject.getAsJsonObject("indices").getAsJsonObject(ES_INDEX).getAsJsonObject
-              ("total").getAsJsonObject("docs");
-      count = docs.getAsJsonPrimitive("count").getAsLong();
+              ("primaries").getAsJsonObject("store");
+      size = docs.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
-    return count == nbDocs;
+    return size;
+  }
+
+  private JestClient createClient() {
+    HttpClientConfig.Builder builder =
+        new HttpClientConfig.Builder("http://" + ES_IP + ":" + ES_HTTP_PORT).multiThreaded(true);
+    JestClientFactory factory = new JestClientFactory();
+    factory.setHttpClientConfig(builder.build());
+    return factory.getObject();
   }
 
   @Test
@@ -305,42 +307,30 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   @Test
-  public void testSizes() throws Exception {
-    long dataSize = sampleIndex(NB_DOCS);
-    PipelineOptions options = PipelineOptionsFactory.create();
-    ElasticsearchIO.Read read =
-        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE);
-    BoundedElasticsearchSource initialSource = read.getSource();
-    assertEquals("Wrong estimated size", 260, initialSource.getEstimatedSizeBytes
-        (options));
-    assertEquals("Wrong average doc size", 26, initialSource.getAverageDocSize());
-  }
-
-  @Test
   public void testSplitsWithSmallerDesiredBundleSizeThanShardSize() throws Exception {
-    long dataSize = sampleIndex(NB_DOCS);
+    sampleIndex(NB_DOCS);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
             ES_INDEX).withType(ES_TYPE);
     BoundedElasticsearchSource initialSource = read.getSource();
-    long desiredBundleSizeBytes = 60;
+    long desiredBundleSizeBytes = 100;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
     SourceTestUtils.
         assertSourcesEqualReferenceSource(initialSource, splits, options);
-    long expectedNbSplits = 9;
+    long expectedNbSplits = 7;
     assertEquals(expectedNbSplits, splits.size());
     //non empty splits cannot be tested because ES car chose not to put docs in some shards
     // leading to empty splits. So the test would not be deterministic
   }
 
-  @After
-  public void after() throws Exception {
+  @AfterClass
+  public static void afterClass() {
     if (node != null) {
       node.close();
     }
   }
 
 }
+
