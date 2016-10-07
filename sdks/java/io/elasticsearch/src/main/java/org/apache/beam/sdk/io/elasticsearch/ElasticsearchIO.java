@@ -273,9 +273,7 @@ public class ElasticsearchIO {
                   this.withShardPreference(shardPreference).withSizeToRead
                       (desiredBundleSizeBytes).withOffset(i));
             }
-
           }
-
         }
       } else {
         sources.add(this);
