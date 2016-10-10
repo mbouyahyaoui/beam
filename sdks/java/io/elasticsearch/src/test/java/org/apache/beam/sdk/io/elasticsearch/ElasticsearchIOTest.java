@@ -79,7 +79,7 @@ public class ElasticsearchIOTest implements Serializable {
   private static final String ES_HTTP_PORT = "9201";
   private static final String ES_TCP_PORT = "9301";
   private static final long NB_DOCS = 400L;
-  public static final int NB_ITERATIONS_TO_WAIT_FOR_REFRESH = 5;
+  public static final int NB_ITERATIONS_TO_WAIT_FOR_REFRESH = 2;
 
   private static transient Node node;
 
