@@ -378,7 +378,7 @@ public class ElasticsearchIO {
           //is still present even after upgrading jest (and http-client) and even after setting
           // maxConnectionIdleTime as recommended
       //https://www.bountysource.com/issues/9650168-jest-and-apache-http-client-4-4-error
-          //increasing timeout does not fix the problem either
+          //increasing timeout does not fix the problem either, multi-thread=false either
 //          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
 //          .readTimeout(20)
           .multiThreaded(true);

@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_INDEX;
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_TYPE;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
 import static org.junit.Assert.assertEquals;
 
 public class ElasticsearchIOIT {
@@ -30,8 +31,32 @@ public class ElasticsearchIOIT {
   //ignored for now because needs ES integration test environment
   @Ignore
   @Test
+  public void testSplitsVolume() throws Exception {
+    PipelineOptions options = PipelineOptionsFactory.create();
+    ElasticsearchIO.Read read =
+        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
+            ES_INDEX).withType(ES_TYPE);
+    ElasticsearchIO.BoundedElasticsearchSource initialSource = read.getSource();
+    long desiredBundleSizeBytes = 4000;
+    List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
+        desiredBundleSizeBytes, options);
+    SourceTestUtils.
+        assertSourcesEqualReferenceSource(initialSource, splits, options);
+    long expectedNbSplits = 15;
+    assertEquals(expectedNbSplits, splits.size());
+    int nonEmptySplits = 0;
+    for (BoundedSource<String> subSource : splits)
+      if (readFromSource(subSource, options).size() > 0) {
+        nonEmptySplits += 1;
+      }
+    assertEquals(expectedNbSplits, nonEmptySplits);
+  }
+
+  //ignored for now because needs ES integration test environment
+  @Ignore
+  @Test
   @Category(NeedsRunner.class)
-  public void testRead() throws Exception {
+  public void testReadVolume() throws Exception {
     String[] args = new String[] { "--runner=FlinkRunner", "--project=test-project" };
 
     TestPipeline pipeline =
@@ -40,14 +65,14 @@ public class ElasticsearchIOIT {
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
             ES_INDEX).withType(ES_TYPE));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(10L);
+    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(1000L);
     pipeline.run();
   }
 
   //ignored for now because needs ES integration test environment
   @Ignore
   @Test
-  public void testVolumeEstimatedSizes() throws IOException {
+  public void testEstimatedSizesVolume() throws IOException {
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
