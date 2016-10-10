@@ -17,6 +17,8 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
@@ -57,8 +59,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
 import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
@@ -78,6 +79,7 @@ public class ElasticsearchIOTest implements Serializable {
   private static final String ES_HTTP_PORT = "9201";
   private static final String ES_TCP_PORT = "9301";
   private static final long NB_DOCS = 400L;
+  public static final int NB_ITERATIONS_TO_WAIT_FOR_REFRESH = 5;
 
   private static transient Node node;
 
@@ -104,11 +106,11 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   @Before
-  public void before() throws IOException{
+  public void before() throws IOException {
     JestClient client = createClient();
     IndicesExists indicesExists = new IndicesExists.Builder(ES_INDEX).build();
     JestResult result1 = client.execute(indicesExists);
-    if (result1.isSucceeded()){
+    if (result1.isSucceeded()) {
       //index exsits
       DeleteIndex deleteIndex = new DeleteIndex.Builder(ES_INDEX).build();
       JestResult result = client.execute(deleteIndex);
@@ -132,53 +134,65 @@ public class ElasticsearchIOTest implements Serializable {
           (source));
     }
     final BulkResponse bulkResponse = bulkRequestBuilder.execute().actionGet();
-    if (bulkResponse.hasFailures()){
+    if (bulkResponse.hasFailures()) {
       throw new IOException("Cannot insert samples in index " + ES_INDEX);
     }
-    //TODO find a better way to have good size of index, waitForESIndexationToFinish gives incorrect
-//        waitForESIndexationToFinish();
-    Thread.sleep(30000);
+    waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
   }
 
   // Refresh is asynchronous in ES and there is no callback in ES to know that indexing is
   // finished. Indexation makes index size change. So we consider it is finished when index size
-  // remains the same for some seconds iterations (cannot rely on nbDocs or indexing.index_total or
+  // of all shards
+  // remains the same for nbIterations seconds (cannot rely on nbDocs or indexing.index_total or
   // refresh.total because they stay the same while size grows).
-  // It is arbitrary but more deterministic and faster than absolute Thread.sleep(10000)
-  private void waitForESIndexationToFinish() throws Exception {
-    long previousSize = -1;
-    int howManyTimesEqual = 0;
+  // It is arbitrary but more deterministic and faster than absolute Thread.sleep(20000)
+  private void waitForESIndexationToFinish(int nbIterations) throws Exception {
+    HashMap<String, Long> previousSizeByShard = new HashMap<>();
+    HashMap<String, Integer> howManyTimesEqualByShard = new HashMap<>();
     while (true) {
-      long currentSize = getIndexSize();
-      if (currentSize == previousSize){
-        howManyTimesEqual++;
+      HashMap<String, Long> currentSizeByShard = getShardsSize();
+      boolean shouldBreak = true;
+      for (String shard : currentSizeByShard.keySet()) {
+        if (currentSizeByShard.get(shard).equals(previousSizeByShard.get(shard))) {
+          howManyTimesEqualByShard.put(shard, howManyTimesEqualByShard.get(shard) + 1);
+        } else {
+          howManyTimesEqualByShard.put(shard, 0);
+        }
+        previousSizeByShard.put(shard, currentSizeByShard.get(shard));
+        if (howManyTimesEqualByShard.get(shard) < nbIterations || currentSizeByShard.get(shard)
+            == 0L) {
+          shouldBreak = false;
+        }
       }
-      else{
-        howManyTimesEqual = 0;
-      }
-      if (howManyTimesEqual == 2){
+      if (shouldBreak) {
         break;
       }
-      previousSize = currentSize;
       Thread.sleep(1000);
     }
   }
 
-  private long getIndexSize() throws IOException {
+  private HashMap<String, Long> getShardsSize() throws IOException {
+    HashMap<String, Long> shardsSize = new HashMap<>();
     JestClient client = createClient();
-
-    Stats stats = new Stats.Builder().addIndex(ES_INDEX).setParameter("level", "indices").build();
+    Stats stats = new Stats.Builder().addIndex(ES_INDEX).setParameter("level", "shards").build();
     JestResult result = client.execute(stats);
     client.shutdownClient();
-    long size = 0;
+
     if (result.isSucceeded()) {
       JsonObject jsonObject = result.getJsonObject();
-      JsonObject store =
-          jsonObject.getAsJsonObject("indices").getAsJsonObject(ES_INDEX).getAsJsonObject
-              ("primaries").getAsJsonObject("store");
-      size = store.getAsJsonPrimitive("size_in_bytes").getAsLong();
+      JsonObject shardsJson =
+          jsonObject.getAsJsonObject("indices").getAsJsonObject(ES_INDEX).getAsJsonObject("shards");
+      Set<Map.Entry<String, JsonElement>> entries = shardsJson.entrySet();
+      for (Map.Entry<String, JsonElement> shardJson : entries) {
+        String shardId = shardJson.getKey();
+        JsonArray value = (JsonArray) shardJson.getValue();
+        long shardSize =
+            value.get(0).getAsJsonObject().getAsJsonObject("store").getAsJsonPrimitive(
+                "size_in_bytes").getAsLong();
+        shardsSize.put(shardId, shardSize);
+      }
     }
-    return size;
+    return shardsSize;
   }
 
   private JestClient createClient() {
@@ -255,8 +269,7 @@ public class ElasticsearchIOTest implements Serializable {
             ES_INDEX).withType(ES_TYPE));
 
     pipeline.run();
-
-    waitForESIndexationToFinish();
+    waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
     Assert.assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
@@ -284,8 +297,7 @@ public class ElasticsearchIOTest implements Serializable {
 
     //TODO assert nb bundles == 2
     pipeline.run();
-    waitForESIndexationToFinish();
-
+    waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
     Assert.assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
