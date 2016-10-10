@@ -323,12 +323,6 @@ public class ElasticsearchIOTest implements Serializable {
         assertSourcesEqualReferenceSource(initialSource, splits, options);
     int expectedNbSplits = 5;
     assertEquals(expectedNbSplits, splits.size());
-    int nonEmptySplits = 0;
-    for (BoundedSource<String> subSource : splits)
-      if (readFromSource(subSource, options).size() > 0) {
-        nonEmptySplits += 1;
-      }
-    assertEquals(expectedNbSplits, nonEmptySplits);
   }
 
   @Test
@@ -346,12 +340,6 @@ public class ElasticsearchIOTest implements Serializable {
         assertSourcesEqualReferenceSource(initialSource, splits, options);
     long expectedNbSplits = 15;
     assertEquals(expectedNbSplits, splits.size());
-    int nonEmptySplits = 0;
-    for (BoundedSource<String> subSource : splits)
-      if (readFromSource(subSource, options).size() > 0) {
-        nonEmptySplits += 1;
-      }
-    assertEquals(expectedNbSplits, nonEmptySplits);
   }
 
   @AfterClass
