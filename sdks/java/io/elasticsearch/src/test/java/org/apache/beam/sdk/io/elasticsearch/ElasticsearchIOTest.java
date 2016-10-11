@@ -73,6 +73,15 @@ import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.*;
+
+import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
+import static org.junit.Assert.assertEquals;
+
 /**
  * Test on {@link ElasticsearchIO}.
  */
