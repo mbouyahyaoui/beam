@@ -17,6 +17,9 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
+import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
+import static org.junit.Assert.assertEquals;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -27,6 +30,16 @@ import io.searchbox.client.config.HttpClientConfig;
 import io.searchbox.indices.DeleteIndex;
 import io.searchbox.indices.IndicesExists;
 import io.searchbox.indices.Stats;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -51,19 +64,13 @@ import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.node.Node;
 import org.elasticsearch.node.NodeBuilder;
-import org.junit.*;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.*;
-
-import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
-import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
-import static org.junit.Assert.assertEquals;
 
 /**
  * Test on {@link ElasticsearchIO}.
@@ -271,11 +278,11 @@ public class ElasticsearchIOTest implements Serializable {
     pipeline.run();
     waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
-    Assert.assertEquals(NB_DOCS, response.getHits().getTotalHits());
+    assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
     QueryBuilder queryBuilder = QueryBuilders.queryStringQuery("Einstein").field("scientist");
     response = node.client().prepareSearch().setQuery(queryBuilder).execute().actionGet();
-    Assert.assertEquals(NB_DOCS / 10, response.getHits().getTotalHits());
+    assertEquals(NB_DOCS / 10, response.getHits().getTotalHits());
   }
 
   @Test
@@ -299,11 +306,11 @@ public class ElasticsearchIOTest implements Serializable {
     pipeline.run();
     waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
-    Assert.assertEquals(NB_DOCS, response.getHits().getTotalHits());
+    assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
     QueryBuilder queryBuilder = QueryBuilders.queryStringQuery("Einstein").field("scientist");
     response = node.client().prepareSearch().setQuery(queryBuilder).execute().actionGet();
-    Assert.assertEquals(NB_DOCS / 10, response.getHits().getTotalHits());
+    assertEquals(NB_DOCS / 10, response.getHits().getTotalHits());
   }
 
   @Test

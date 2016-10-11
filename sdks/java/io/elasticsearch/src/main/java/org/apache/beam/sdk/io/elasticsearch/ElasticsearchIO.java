@@ -17,7 +17,8 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import com.google.common.base.Preconditions;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -25,9 +26,23 @@ import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.JestResult;
 import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.core.*;
+import io.searchbox.core.Bulk;
+import io.searchbox.core.BulkResult;
+import io.searchbox.core.Index;
+import io.searchbox.core.Search;
+import io.searchbox.core.SearchResult;
 import io.searchbox.indices.Stats;
 import io.searchbox.params.Parameters;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
+
+import javax.annotation.Nullable;
+
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
@@ -40,23 +55,18 @@ import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 
-import javax.annotation.Nullable;
-import java.io.IOException;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-
 /**
  * <p>IO to read and write data on Elasticsearch.</p>
- * <p>
+ *
  * <h3>Reading from Elasticsearch</h3>
- * <p>
+ *
  * <p>ElasticsearchIO source returns a bounded collection of String representing JSON document
  * as {@code PCollection<String>}.</p>
- * <p>
+ *
  * <p>To configure the Elasticsearch source, you have to provide the HTTP address of the
  * instance, and an index name. The following example illustrates various options for
  * configuring the source:</p>
- * <p>
+ *
  * <pre>{@code
  *
  * pipeline.apply(ElasticsearchIO.read()
@@ -64,17 +74,17 @@ import java.util.concurrent.TimeUnit;
  *   .withIndex("my-index")
  *
  * }</pre>
- * <p>
+ *
  * <p>The source also accepts optional configuration: {@code withUsername()}, {@code
  * withPassword()}, {@code withQuery()}, {@code withType()}.</p>
- * <p>
+ *
  * <h3>Writing to Elasticsearch</h3>
- * <p>
+ *
  * <p>ElasticsearchIO supports sink to write documents (as JSON String).</p>
- * <p>
+ *
  * <p>To configure Elasticsearch sink, you must specify HTTP {@code address} of the instance, an
  * {@code index}, {@code type}. For instance:</p>
- * <p>
+ *
  * <pre>{@code
  *
  *  pipeline
@@ -146,6 +156,9 @@ public class ElasticsearchIO {
 
   }
 
+  /**
+   * A {@link BoundedSource} reading from Elasticsearch.
+   */
   protected static class BoundedElasticsearchSource extends BoundedSource<String> {
 
     private final String address;
@@ -261,9 +274,8 @@ public class ElasticsearchIO {
           String shardPreference = "_shards:" + shardId;
           float nbBundlesFloat = (float) shardSize / desiredBundleSizeBytes;
           int nbBundles = (int) Math.ceil(nbBundlesFloat);
-          if (nbBundles <= 1)
-          //read all docs in the shard
-          {
+          if (nbBundles <= 1) {
+            // read all docs in the shard
             sources.add(this.withShardPreference(shardPreference));
           } else {
             // split the shard into nbBundles chunks of desiredBundleSizeBytes by creating
@@ -346,9 +358,9 @@ public class ElasticsearchIO {
 
     @Override
     public void validate() {
-      Preconditions.checkNotNull(address, "address is a mandatory parameter");
-      Preconditions.checkNotNull(index, "index is a mandatory parameter");
-      Preconditions.checkNotNull(type, "type is a mandatory parameter");
+      checkNotNull(address, "address is a mandatory parameter");
+      checkNotNull(index, "index is a mandatory parameter");
+      checkNotNull(type, "type is a mandatory parameter");
     }
 
     @Override
@@ -573,9 +585,9 @@ public class ElasticsearchIO {
       }
 
       public void validate() {
-        Preconditions.checkNotNull(address, "address");
-        Preconditions.checkNotNull(index, "index");
-        Preconditions.checkNotNull(type, "type");
+        checkNotNull(address, "address");
+        checkNotNull(index, "index");
+        checkNotNull(type, "type");
       }
 
       @Setup

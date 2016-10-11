@@ -1,7 +1,14 @@
 package org.apache.beam.sdk.io.elasticsearch;
 
+import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_INDEX;
+import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_TYPE;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
+import static org.junit.Assert.assertEquals;
+
+import java.io.IOException;
+import java.util.List;
+
 import org.apache.beam.sdk.io.BoundedSource;
-import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.testing.NeedsRunner;
@@ -9,21 +16,14 @@ import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.SourceTestUtils;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Count;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-import java.io.IOException;
-import java.util.List;
-
-import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_INDEX;
-import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_TYPE;
-import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
-import static org.junit.Assert.assertEquals;
-
+/**
+ * Integration test for Elasticsearch IO.
+ */
 public class ElasticsearchIOIT {
   private static final String ES_IP = "localhost";
   private static final String ES_HTTP_PORT = "9200";
@@ -45,10 +45,11 @@ public class ElasticsearchIOIT {
     long expectedNbSplits = 15;
     assertEquals(expectedNbSplits, splits.size());
     int nonEmptySplits = 0;
-    for (BoundedSource<String> subSource : splits)
+    for (BoundedSource<String> subSource : splits) {
       if (readFromSource(subSource, options).size() > 0) {
         nonEmptySplits += 1;
       }
+    }
     assertEquals(expectedNbSplits, nonEmptySplits);
   }
 
