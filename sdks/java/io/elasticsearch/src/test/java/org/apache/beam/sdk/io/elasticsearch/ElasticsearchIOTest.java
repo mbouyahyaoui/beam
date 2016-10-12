@@ -28,6 +28,7 @@ import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.JestResult;
 import io.searchbox.client.config.HttpClientConfig;
 import io.searchbox.indices.DeleteIndex;
+import io.searchbox.indices.Flush;
 import io.searchbox.indices.IndicesExists;
 import io.searchbox.indices.Stats;
 
@@ -55,6 +56,8 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
+import org.elasticsearch.action.admin.indices.flush.FlushRequest;
+import org.elasticsearch.action.admin.indices.flush.FlushRequestBuilder;
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.search.SearchResponse;
@@ -144,7 +147,11 @@ public class ElasticsearchIOTest implements Serializable {
     if (bulkResponse.hasFailures()) {
       throw new IOException("Cannot insert samples in index " + ES_INDEX);
     }
-    waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
+
+    // perform a flush
+    FlushRequest flushRequest = new FlushRequest(ES_INDEX).force(true).waitIfOngoing(true);
+    client.admin().indices().flush(flushRequest).actionGet();
+    //waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
   }
 
   // Refresh is asynchronous in ES and there is no callback in ES to know that indexing is
@@ -153,6 +160,7 @@ public class ElasticsearchIOTest implements Serializable {
   // remains the same for nbIterations seconds (cannot rely on nbDocs or indexing.index_total or
   // refresh.total because they stay the same while size grows).
   // It is arbitrary but more deterministic and faster than absolute Thread.sleep(20000)
+  /*
   private void waitForESIndexationToFinish(int nbIterations) throws Exception {
     HashMap<String, Long> previousSizeByShard = new HashMap<>();
     HashMap<String, Integer> howManyTimesEqualByShard = new HashMap<>();
@@ -177,6 +185,7 @@ public class ElasticsearchIOTest implements Serializable {
       Thread.sleep(1000);
     }
   }
+  */
 
   private HashMap<String, Long> getShardsSize() throws IOException {
     HashMap<String, Long> shardsSize = new HashMap<>();
@@ -276,7 +285,7 @@ public class ElasticsearchIOTest implements Serializable {
             ES_INDEX).withType(ES_TYPE));
 
     pipeline.run();
-    waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
+    // waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
     assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
@@ -304,7 +313,7 @@ public class ElasticsearchIOTest implements Serializable {
 
     //TODO assert nb bundles == 2
     pipeline.run();
-    waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
+    // waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
     assertEquals(NB_DOCS, response.getHits().getTotalHits());
 

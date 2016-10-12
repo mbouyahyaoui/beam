@@ -5,8 +5,23 @@ import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_TYPE;
 import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
 import static org.junit.Assert.assertEquals;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import io.searchbox.client.JestClient;
+import io.searchbox.client.JestClientFactory;
+import io.searchbox.client.JestResult;
+import io.searchbox.core.Bulk;
+import io.searchbox.core.BulkResult;
+import io.searchbox.core.Index;
+import io.searchbox.indices.Flush;
+import io.searchbox.indices.Stats;
+
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -82,7 +97,67 @@ public class ElasticsearchIOIT {
     assertEquals("Wrong estimated size", 1928649, initialSource.getEstimatedSizeBytes
         (options));
     assertEquals("Wrong average doc size", 27, initialSource.getAverageDocSize());
+  }
 
+  @Test
+  public void testJestBulkInsert() throws Exception {
+    JestClientFactory factory = new JestClientFactory();
+    JestClient client = factory.getObject();
+    for (int i = 0; i < 100; i++) {
+      ArrayList<Index> batch = new ArrayList();
+      for (int j = 0; j < 100; j++) {
+        batch.add(new Index.Builder("{ \"name\" : \"Einstein\" }").index("scientist").type
+            ("default")
+            .build());
+      }
+      Bulk bulk = new Bulk.Builder()
+          .defaultIndex("scientist")
+          .defaultType("default")
+          .addAction(batch)
+          .build();
+      BulkResult result = client.execute(bulk);
+      if (!result.isSucceeded()) {
+        System.out.println("Bulk failed");
+        System.out.println(result.getErrorMessage());
+      }
+      batch.clear();
+    }
+
+    Flush flush = new Flush.Builder().setParameter("wait_for_ongoing", "").build();
+    JestResult flushResult = client.execute(flush);
+    if (!flushResult.isSucceeded()) {
+      System.out.println(flushResult.getErrorMessage());
+    }
+  }
+
+  @Test
+  public void testJestSize() throws Exception {
+    JestClientFactory factory = new JestClientFactory();
+    JestClient client = factory.getObject();
+    System.out.println("Stats");
+    Stats stats = new Stats.Builder().addIndex("scientist").setParameter("level", "shards").build();
+    JestResult result = client.execute(stats);
+    if (result.isSucceeded()) {
+      JsonObject jsonObject = result.getJsonObject();
+      long indexSize = jsonObject.getAsJsonObject("indices").getAsJsonObject("scientist")
+          .getAsJsonObject("total").getAsJsonObject("store").getAsJsonPrimitive("size_in_bytes")
+          .getAsLong();
+      System.out.println("Index: " + indexSize);
+      JsonObject shardsJson = jsonObject.getAsJsonObject("indices").getAsJsonObject("scientist")
+          .getAsJsonObject("shards");
+      Set<Map.Entry<String, JsonElement>> entries = shardsJson.entrySet();
+      for (Map.Entry<String, JsonElement> shardJson : entries) {
+        String shardId = shardJson.getKey();
+        JsonArray value = (JsonArray) shardJson.getValue();
+        long shardSize =
+            value.get(0).getAsJsonObject().getAsJsonObject("store").getAsJsonPrimitive(
+                "size_in_bytes").getAsLong();
+        System.out.println("Shard " + shardId + ": " + shardSize);
+      }
+    } else {
+      System.out.println("Stats failed");
+      System.out.println(result.getErrorMessage());
+    }
   }
 
 }
