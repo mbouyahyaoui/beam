@@ -123,11 +123,13 @@ public class ElasticsearchIOIT {
       batch.clear();
     }
 
-    Flush flush = new Flush.Builder().setParameter("wait_for_ongoing", "").build();
+    Flush flush = new Flush.Builder().setParameter("wait_for_ongoing", "true")
+        .setParameter("force", "true").build();
     JestResult flushResult = client.execute(flush);
     if (!flushResult.isSucceeded()) {
       System.out.println(flushResult.getErrorMessage());
     }
+    System.out.println(flushResult.getJsonString());
   }
 
   @Test
