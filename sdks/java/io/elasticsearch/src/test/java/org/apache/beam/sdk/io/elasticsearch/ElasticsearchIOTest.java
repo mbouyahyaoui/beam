@@ -283,6 +283,10 @@ public class ElasticsearchIOTest implements Serializable {
             ES_INDEX).withType(ES_TYPE));
 
     pipeline.run();
+
+    FlushRequest flushRequest = new FlushRequest(ES_INDEX).force(true).waitIfOngoing(true);
+    node.client().admin().indices().flush(flushRequest).actionGet();
+
     // waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
     assertEquals(NB_DOCS, response.getHits().getTotalHits());
@@ -311,6 +315,10 @@ public class ElasticsearchIOTest implements Serializable {
 
     //TODO assert nb bundles == 2
     pipeline.run();
+
+    FlushRequest flushRequest = new FlushRequest(ES_INDEX).force(true).waitIfOngoing(true);
+    node.client().admin().indices().flush(flushRequest).actionGet();
+
     // waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
     assertEquals(NB_DOCS, response.getHits().getTotalHits());
