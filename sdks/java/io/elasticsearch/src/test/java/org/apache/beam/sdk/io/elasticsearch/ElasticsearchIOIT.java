@@ -14,10 +14,12 @@ import io.searchbox.client.JestResult;
 import io.searchbox.core.Bulk;
 import io.searchbox.core.BulkResult;
 import io.searchbox.core.Index;
+import io.searchbox.indices.CreateIndex;
 import io.searchbox.indices.Flush;
 import io.searchbox.indices.Stats;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +34,23 @@ import org.apache.beam.sdk.testing.SourceTestUtils;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.values.PCollection;
+import org.elasticsearch.action.admin.indices.cache.clear.ClearIndicesCacheRequest;
+import org.elasticsearch.action.admin.indices.flush.FlushRequest;
+import org.elasticsearch.action.admin.indices.flush.FlushResponse;
+import org.elasticsearch.action.admin.indices.flush.SyncedFlushRequest;
+import org.elasticsearch.action.admin.indices.upgrade.post.UpgradeRequest;
+import org.elasticsearch.action.bulk.BulkProcessor;
+import org.elasticsearch.action.bulk.BulkRequest;
+import org.elasticsearch.action.bulk.BulkResponse;
+import org.elasticsearch.action.get.GetResponse;
+import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.action.index.IndexRequestBuilder;
+import org.elasticsearch.client.Client;
+import org.elasticsearch.client.transport.TransportClient;
+import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.transport.InetSocketTransportAddress;
+import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.index.indexing.IndexingStats;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -100,6 +119,63 @@ public class ElasticsearchIOIT {
   }
 
   @Test
+  public void testESBulkInsert() throws Exception {
+    Settings settings = Settings.settingsBuilder()
+        .put("cluster.name", "beam")
+        .build();
+    InetSocketTransportAddress address =
+        new InetSocketTransportAddress(InetAddress.getByName("localhost"), 9300);
+    Client client = TransportClient.builder().settings(settings).build()
+        .addTransportAddress(address);
+
+    BulkProcessor bulkProcessor = BulkProcessor.builder(client, new BulkProcessor.Listener() {
+      @Override
+      public void beforeBulk(long executionId, BulkRequest request) {
+
+      }
+
+      @Override
+      public void afterBulk(long executionId, BulkRequest request, BulkResponse response) {
+
+      }
+
+      @Override
+      public void afterBulk(long executionId, BulkRequest request, Throwable failure) {
+
+      }
+    })
+        .setFlushInterval(TimeValue.timeValueSeconds(10))
+        .setBulkActions(1000)
+        .build();
+    for (int i = 0; i < 10000; i++) {
+      IndexRequest indexRequest = new IndexRequest("scientist", "default")
+          .source("{ \"name\" : \"Einstein\" }");
+      bulkProcessor.add(indexRequest);
+    }
+
+    // clearing cache
+    ClearIndicesCacheRequest clearCacheRequest = new ClearIndicesCacheRequest("scientist");
+    client.admin().indices().clearCache(clearCacheRequest).actionGet();
+
+    // flushing
+    FlushRequest flushRequest = new FlushRequest("scientist").force(true).waitIfOngoing(true);
+    client.admin().indices().flush(flushRequest).actionGet();
+
+    // flush sync
+    SyncedFlushRequest syncedFlushRequest = new SyncedFlushRequest();
+    client.admin().indices().syncedFlush(syncedFlushRequest).actionGet();
+
+    // upgrade
+    UpgradeRequest upgradeRequest = new UpgradeRequest();
+    client.admin().indices().upgrade(upgradeRequest).actionGet();
+  }
+
+  @Test
+  public void testESSize() throws Exception {
+
+  }
+
+  @Test
   public void testJestBulkInsert() throws Exception {
     JestClientFactory factory = new JestClientFactory();
     JestClient client = factory.getObject();
@@ -123,8 +199,7 @@ public class ElasticsearchIOIT {
       batch.clear();
     }
 
-    Flush flush = new Flush.Builder().setParameter("wait_for_ongoing", "true")
-        .setParameter("force", "true").build();
+    Flush flush = new Flush.Builder().setParameter("wait_for_ongoing", null).build();
     JestResult flushResult = client.execute(flush);
     if (!flushResult.isSucceeded()) {
       System.out.println(flushResult.getErrorMessage());

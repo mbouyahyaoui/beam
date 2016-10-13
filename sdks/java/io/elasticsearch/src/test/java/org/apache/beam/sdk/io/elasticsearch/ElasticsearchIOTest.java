@@ -55,7 +55,7 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
-import org.elasticsearch.action.admin.indices.flush.FlushRequest;
+import org.elasticsearch.action.admin.indices.upgrade.post.UpgradeRequest;
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.search.SearchResponse;
@@ -146,9 +146,9 @@ public class ElasticsearchIOTest implements Serializable {
       throw new IOException("Cannot insert samples in index " + ES_INDEX);
     }
 
-    // perform a flush
-    FlushRequest flushRequest = new FlushRequest(ES_INDEX).force(true).waitIfOngoing(true);
-    client.admin().indices().flush(flushRequest).actionGet();
+    // perform a upgrade
+    UpgradeRequest upgradeRequest = new UpgradeRequest();
+    client.admin().indices().upgrade(upgradeRequest).actionGet();
     //waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
   }
 
@@ -284,8 +284,8 @@ public class ElasticsearchIOTest implements Serializable {
 
     pipeline.run();
 
-    FlushRequest flushRequest = new FlushRequest(ES_INDEX).force(true).waitIfOngoing(true);
-    node.client().admin().indices().flush(flushRequest).actionGet();
+    UpgradeRequest upgradeRequest = new UpgradeRequest();
+    node.client().admin().indices().upgrade(upgradeRequest).actionGet();
 
     // waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
@@ -316,8 +316,8 @@ public class ElasticsearchIOTest implements Serializable {
     //TODO assert nb bundles == 2
     pipeline.run();
 
-    FlushRequest flushRequest = new FlushRequest(ES_INDEX).force(true).waitIfOngoing(true);
-    node.client().admin().indices().flush(flushRequest).actionGet();
+    UpgradeRequest upgradeRequest = new UpgradeRequest();
+    node.client().admin().indices().upgrade(upgradeRequest).actionGet();
 
     // waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
