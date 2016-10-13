@@ -87,7 +87,6 @@ public class ElasticsearchIOTest implements Serializable {
   private static final String ES_HTTP_PORT = "9201";
   private static final String ES_TCP_PORT = "9301";
   private static final long NB_DOCS = 400L;
-  public static final int NB_ITERATIONS_TO_WAIT_FOR_REFRESH = 2;
 
   private static transient Node node;
 
@@ -105,7 +104,8 @@ public class ElasticsearchIOTest implements Serializable {
             .put("node.name", "beam")
             .put("network.host", ES_IP)
             .put("port", ES_TCP_PORT)
-            .put("http.port", ES_HTTP_PORT);
+            .put("http.port", ES_HTTP_PORT)
+            .put("index.store.stats_refresh_interval", 0);
     node = NodeBuilder.nodeBuilder().settings(settingsBuilder).build();
     LOGGER.info("Elasticsearch node created");
     if (node != null) {
@@ -145,45 +145,7 @@ public class ElasticsearchIOTest implements Serializable {
     if (bulkResponse.hasFailures()) {
       throw new IOException("Cannot insert samples in index " + ES_INDEX);
     }
-
-    // perform a upgrade
-    UpgradeRequest upgradeRequest = new UpgradeRequest();
-    client.admin().indices().upgrade(upgradeRequest).actionGet();
-    //waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
   }
-
-  // Refresh is asynchronous in ES and there is no callback in ES to know that indexing is
-  // finished. Indexation makes index size change. So we consider it is finished when index size
-  // of all shards
-  // remains the same for nbIterations seconds (cannot rely on nbDocs or indexing.index_total or
-  // refresh.total because they stay the same while size grows).
-  // It is arbitrary but more deterministic and faster than absolute Thread.sleep(20000)
-  /*
-  private void waitForESIndexationToFinish(int nbIterations) throws Exception {
-    HashMap<String, Long> previousSizeByShard = new HashMap<>();
-    HashMap<String, Integer> howManyTimesEqualByShard = new HashMap<>();
-    while (true) {
-      HashMap<String, Long> currentSizeByShard = getShardsSize();
-      boolean shouldBreak = true;
-      for (String shard : currentSizeByShard.keySet()) {
-        if (currentSizeByShard.get(shard).equals(previousSizeByShard.get(shard))) {
-          howManyTimesEqualByShard.put(shard, howManyTimesEqualByShard.get(shard) + 1);
-        } else {
-          howManyTimesEqualByShard.put(shard, 0);
-        }
-        previousSizeByShard.put(shard, currentSizeByShard.get(shard));
-        if (howManyTimesEqualByShard.get(shard) < nbIterations || currentSizeByShard.get(shard)
-            == 0L) {
-          shouldBreak = false;
-        }
-      }
-      if (shouldBreak) {
-        break;
-      }
-      Thread.sleep(1000);
-    }
-  }
-  */
 
   private HashMap<String, Long> getShardsSize() throws IOException {
     HashMap<String, Long> shardsSize = new HashMap<>();
@@ -284,10 +246,9 @@ public class ElasticsearchIOTest implements Serializable {
 
     pipeline.run();
 
-    UpgradeRequest upgradeRequest = new UpgradeRequest();
-    node.client().admin().indices().upgrade(upgradeRequest).actionGet();
+    // upgrade
+    node.client().admin().indices().upgrade(new UpgradeRequest()).actionGet();
 
-    // waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
     assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
@@ -316,10 +277,9 @@ public class ElasticsearchIOTest implements Serializable {
     //TODO assert nb bundles == 2
     pipeline.run();
 
-    UpgradeRequest upgradeRequest = new UpgradeRequest();
-    node.client().admin().indices().upgrade(upgradeRequest).actionGet();
+    // upgrade
+    node.client().admin().indices().upgrade(new UpgradeRequest()).actionGet();
 
-    // waitForESIndexationToFinish(NB_ITERATIONS_TO_WAIT_FOR_REFRESH);
     SearchResponse response = node.client().prepareSearch().execute().actionGet(5000);
     assertEquals(NB_DOCS, response.getHits().getTotalHits());
 
