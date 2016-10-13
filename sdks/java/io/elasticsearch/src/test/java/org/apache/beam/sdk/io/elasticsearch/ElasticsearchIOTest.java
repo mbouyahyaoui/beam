@@ -17,29 +17,12 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
-import static org.junit.Assert.assertEquals;
-
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.JestResult;
 import io.searchbox.client.config.HttpClientConfig;
 import io.searchbox.indices.DeleteIndex;
 import io.searchbox.indices.IndicesExists;
-import io.searchbox.indices.Stats;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -76,7 +59,8 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
 import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
@@ -156,30 +140,6 @@ public class ElasticsearchIOTest implements Serializable {
     }
   }
 
-  private HashMap<String, Long> getShardsSize() throws IOException {
-    HashMap<String, Long> shardsSize = new HashMap<>();
-    JestClient client = createClient();
-    Stats stats = new Stats.Builder().addIndex(ES_INDEX).setParameter("level", "shards").build();
-    JestResult result = client.execute(stats);
-    client.shutdownClient();
-
-    if (result.isSucceeded()) {
-      JsonObject jsonObject = result.getJsonObject();
-      JsonObject shardsJson =
-          jsonObject.getAsJsonObject("indices").getAsJsonObject(ES_INDEX).getAsJsonObject("shards");
-      Set<Map.Entry<String, JsonElement>> entries = shardsJson.entrySet();
-      for (Map.Entry<String, JsonElement> shardJson : entries) {
-        String shardId = shardJson.getKey();
-        JsonArray value = (JsonArray) shardJson.getValue();
-        long shardSize =
-            value.get(0).getAsJsonObject().getAsJsonObject("store").getAsJsonPrimitive(
-                "size_in_bytes").getAsLong();
-        shardsSize.put(shardId, shardSize);
-      }
-    }
-    return shardsSize;
-  }
-
   private JestClient createClient() {
     HttpClientConfig.Builder builder =
         new HttpClientConfig.Builder("http://" + ES_IP + ":" + ES_HTTP_PORT).multiThreaded(true);
@@ -196,7 +156,7 @@ public class ElasticsearchIOTest implements Serializable {
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
             ES_INDEX).withType(ES_TYPE);
     BoundedElasticsearchSource initialSource = read.getSource();
-    assertEquals("Wrong estimated size", 8279, initialSource.getEstimatedSizeBytes
+    assertEquals("Wrong estimated size", 46433, initialSource.getEstimatedSizeBytes
         (options));
     assertEquals("Wrong average doc size", 26, initialSource.getAverageDocSize());
   }
