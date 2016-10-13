@@ -189,6 +189,19 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   @Test
+  public void testSizes() throws Exception {
+    sampleIndex(NB_DOCS);
+    PipelineOptions options = PipelineOptionsFactory.create();
+    ElasticsearchIO.Read read =
+        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
+            ES_INDEX).withType(ES_TYPE);
+    BoundedElasticsearchSource initialSource = read.getSource();
+    assertEquals("Wrong estimated size", 8279, initialSource.getEstimatedSizeBytes
+        (options));
+    assertEquals("Wrong average doc size", 26, initialSource.getAverageDocSize());
+  }
+
+  @Test
   @Category(NeedsRunner.class)
   public void testRead() throws Exception {
     sampleIndex(NB_DOCS);
@@ -305,8 +318,6 @@ public class ElasticsearchIOTest implements Serializable {
         ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
             ES_INDEX).withType(ES_TYPE);
     BoundedElasticsearchSource initialSource = read.getSource();
-    //ES creates 5 shards for that amount of data, so there should be 5 split because bundlesize
-    // is > to shard size
     int desiredBundleSizeBytes = 1073741824;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
@@ -314,6 +325,12 @@ public class ElasticsearchIOTest implements Serializable {
         assertSourcesEqualReferenceSource(initialSource, splits, options);
     int expectedNbSplits = 5;
     assertEquals(expectedNbSplits, splits.size());
+    int nonEmptySplits = 0;
+    for (BoundedSource<String> subSource : splits)
+      if (readFromSource(subSource, options).size() > 0) {
+        nonEmptySplits += 1;
+      }
+    assertEquals("Wrong number of empty splits", expectedNbSplits, nonEmptySplits);
   }
 
   @Test
@@ -329,8 +346,14 @@ public class ElasticsearchIOTest implements Serializable {
         desiredBundleSizeBytes, options);
     SourceTestUtils.
         assertSourcesEqualReferenceSource(initialSource, splits, options);
-    long expectedNbSplits = 15;
+    long expectedNbSplits = 7;
     assertEquals(expectedNbSplits, splits.size());
+    int nonEmptySplits = 0;
+    for (BoundedSource<String> subSource : splits)
+      if (readFromSource(subSource, options).size() > 0) {
+        nonEmptySplits += 1;
+      }
+    assertEquals("Wrong number of empty splits", expectedNbSplits, nonEmptySplits);
   }
 
   @AfterClass
