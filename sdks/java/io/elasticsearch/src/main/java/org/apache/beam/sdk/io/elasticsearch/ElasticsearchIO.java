@@ -17,32 +17,9 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import io.searchbox.client.JestClient;
-import io.searchbox.client.JestClientFactory;
-import io.searchbox.client.JestResult;
-import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.core.Bulk;
-import io.searchbox.core.BulkResult;
-import io.searchbox.core.Index;
-import io.searchbox.core.Search;
-import io.searchbox.core.SearchResult;
-import io.searchbox.indices.Stats;
-import io.searchbox.params.Parameters;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Set;
-
-import javax.annotation.Nullable;
-
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
@@ -54,6 +31,18 @@ import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
+import org.apache.http.HttpHost;
+import org.apache.http.client.config.RequestConfig;
+import org.elasticsearch.client.RestClient;
+
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.*;
+import org.apache.http.client.config.RequestConfig.Builder;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>IO to read and write data on Elasticsearch.</p>
@@ -237,16 +226,15 @@ public class ElasticsearchIO {
                                             shardPreference, sizeToRead, offset);
     }
 
-    private JestClient createClient() {
-      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
-          //          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
-          .multiThreaded(true);
+    private RestClient createClient() throws MalformedURLException {
+
+      URL url = new URL(address);
+      RestClient restClient = RestClient.builder(
+          new HttpHost(url.getHost(), url.getPort(), url.getProtocol())).build();
       if (username != null) {
-        builder = builder.defaultCredentials(username, password);
+        //TODO pass authentication with org.apache.http.client.config.RequestConfig.Builder
       }
-      JestClientFactory factory = new JestClientFactory();
-      factory.setHttpClientConfig(builder.build());
-      return factory.getObject();
+      return restClient;
     }
 
     @Override
@@ -373,7 +361,7 @@ public class ElasticsearchIO {
 
     private final BoundedElasticsearchSource source;
 
-    private JestClient client;
+    private RestClient client;
     private String current;
     private long desiredNbDocs;
     private long nbDocsRead;
@@ -468,7 +456,7 @@ public class ElasticsearchIO {
     @Override
     public void close() throws IOException {
       if (client != null) {
-        client.shutdownClient();
+        client.close();
       }
     }
 
@@ -534,7 +522,7 @@ public class ElasticsearchIO {
       //byte size of bacth in MB
       private final int batchSizeMegaBytes;
 
-      private JestClient client;
+      private RestClient client;
       private ArrayList<Index> batch;
       private long currentBatchSizeBytes;
 
@@ -593,15 +581,13 @@ public class ElasticsearchIO {
       @Setup
       public void createClient() throws Exception {
         if (client == null) {
-          HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
-              //              .maxConnectionIdleTime(10, TimeUnit.SECONDS)
-              .multiThreaded(true);
+          URL url = new URL(address);
+          RestClient restClient = RestClient.builder(
+              new HttpHost(url.getHost(), url.getPort(), url.getProtocol())).build();
           if (username != null) {
-            builder = builder.defaultCredentials(username, password);
+            //TODO pass authentication with org.apache.http.client.config.RequestConfig.Builder
           }
-          JestClientFactory factory = new JestClientFactory();
-          factory.setHttpClientConfig(builder.build());
-          client = factory.getObject();
+          client = restClient;
         }
       }
 
@@ -645,7 +631,7 @@ public class ElasticsearchIO {
       @Teardown
       public void closeClient() throws Exception {
         if (client != null) {
-          client.shutdownClient();
+          client.close();
         }
       }
 
