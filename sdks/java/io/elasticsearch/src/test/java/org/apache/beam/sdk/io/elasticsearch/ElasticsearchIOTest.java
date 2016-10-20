@@ -17,12 +17,23 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
+import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
+import static org.junit.Assert.assertEquals;
+
 import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.JestResult;
 import io.searchbox.client.config.HttpClientConfig;
 import io.searchbox.indices.DeleteIndex;
 import io.searchbox.indices.IndicesExists;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -55,16 +66,6 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
-import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
-import static org.junit.Assert.assertEquals;
 
 /**
  * Test on {@link ElasticsearchIO}.
@@ -286,10 +287,11 @@ public class ElasticsearchIOTest implements Serializable {
     int expectedNbSplits = 5;
     assertEquals(expectedNbSplits, splits.size());
     int nonEmptySplits = 0;
-    for (BoundedSource<String> subSource : splits)
+    for (BoundedSource<String> subSource : splits) {
       if (readFromSource(subSource, options).size() > 0) {
         nonEmptySplits += 1;
       }
+    }
     assertEquals("Wrong number of empty splits", expectedNbSplits, nonEmptySplits);
   }
 
@@ -309,10 +311,11 @@ public class ElasticsearchIOTest implements Serializable {
     long expectedNbSplits = 7;
     assertEquals(expectedNbSplits, splits.size());
     int nonEmptySplits = 0;
-    for (BoundedSource<String> subSource : splits)
+    for (BoundedSource<String> subSource : splits) {
       if (readFromSource(subSource, options).size() > 0) {
         nonEmptySplits += 1;
       }
+    }
     assertEquals("Wrong number of empty splits", expectedNbSplits, nonEmptySplits);
   }
 
@@ -324,4 +327,3 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
 }
-
