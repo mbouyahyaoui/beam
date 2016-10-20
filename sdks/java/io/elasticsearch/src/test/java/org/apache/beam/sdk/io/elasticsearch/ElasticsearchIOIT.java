@@ -80,9 +80,12 @@ public class ElasticsearchIOIT {
   public void testSplitsVolume() throws Exception {
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
-        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE);
-    ElasticsearchIO.BoundedElasticsearchSource initialSource = read.getSource();
+        ElasticsearchIO.read()
+            .withConnectionConfiguration(
+                ElasticsearchIO.ConnectionConfiguration
+                    .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE));
+    ElasticsearchIO.BoundedElasticsearchSource initialSource =
+        new ElasticsearchIO.BoundedElasticsearchSource(read, null, null, null);
     long desiredBundleSizeBytes = 4000;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
@@ -110,8 +113,9 @@ public class ElasticsearchIOIT {
         TestPipeline.fromOptions(PipelineOptionsFactory.fromArgs(args).create());
 
     PCollection<String> output = pipeline.apply(
-        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE));
+        ElasticsearchIO.read().withConnectionConfiguration(
+            ElasticsearchIO.ConnectionConfiguration
+                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE)));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(1000L);
     pipeline.run();
   }
@@ -122,9 +126,11 @@ public class ElasticsearchIOIT {
   public void testEstimatedSizesVolume() throws IOException {
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
-        ElasticsearchIO.read().withAddress("http://" + ES_IP + ":" + ES_HTTP_PORT).withIndex(
-            ES_INDEX).withType(ES_TYPE);
-    ElasticsearchIO.BoundedElasticsearchSource initialSource = read.getSource();
+        ElasticsearchIO.read().withConnectionConfiguration(
+            ElasticsearchIO.ConnectionConfiguration
+              .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE));
+    ElasticsearchIO.BoundedElasticsearchSource initialSource =
+        new ElasticsearchIO.BoundedElasticsearchSource(read, null, null, null);
     assertEquals("Wrong estimated size", 1928649, initialSource.getEstimatedSizeBytes
         (options));
     assertEquals("Wrong average doc size", 27, initialSource.getAverageDocSize());
