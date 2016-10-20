@@ -19,6 +19,7 @@ package org.apache.beam.sdk.io.elasticsearch;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.auto.value.AutoValue;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -35,6 +36,7 @@ import io.searchbox.indices.Stats;
 import io.searchbox.params.Parameters;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -63,95 +65,165 @@ import org.apache.beam.sdk.values.PDone;
  * <p>ElasticsearchIO source returns a bounded collection of String representing JSON document
  * as {@code PCollection<String>}.</p>
  *
- * <p>To configure the Elasticsearch source, you have to provide the HTTP address of the
- * instance, and an index name. The following example illustrates various options for
- * configuring the source:</p>
+ * <p>To configure the Elasticsearch source, you have to provide a connection configuration
+ * containing the HTTP address of the instance, an index name and a type. The following example
+ * illustrates various options for configuring the source:</p>
  *
  * <pre>{@code
  *
- * pipeline.apply(ElasticsearchIO.read()
- *   .withAddress("http://host:9200")
- *   .withIndex("my-index")
+ * pipeline.apply(ElasticsearchIO.read().withConnectionConfiguration(
+ *    ElasticsearchIO.ConnectionConfiguration.create("http://host:9200", "my-index", "my-type")
+ * )
  *
  * }</pre>
  *
- * <p>The source also accepts optional configuration: {@code withUsername()}, {@code
- * withPassword()}, {@code withQuery()}, {@code withType()}.</p>
+ * <p>The connection configuration also accepts optional configuration: {@code withUsername()} and
+ * {@code withPassword()}.</p>
+ *
+ * <p>You can also specify a query on the {@code read()} using {@code withQuery()}.</p>
  *
  * <h3>Writing to Elasticsearch</h3>
  *
  * <p>ElasticsearchIO supports sink to write documents (as JSON String).</p>
  *
- * <p>To configure Elasticsearch sink, you must specify HTTP {@code address} of the instance, an
- * {@code index}, {@code type}. For instance:</p>
+ * <p>To configure Elasticsearch sink, similar to the read, you have to provide a connection
+ * configuration. For instance:</p>
  *
  * <pre>{@code
  *
  *  pipeline
  *    .apply(...)
- *    .apply(ElasticsearchIO.write()
- *      .withAddress("http://host:9200")
- *      .withIndex("my-index")
- *      .withType("my-type")
+ *    .apply(ElasticsearchIO.write().withConnectionConfiguration(
+ *       ElasticsearchIO.ConnectionConfiguration.create("http://host:9200", "my-index", "my-type")
+ *    )
  *
  * }</pre>
+ *
+ * <p>Optionally, you can provide {@code withBatchSize()} and {@code withBatchSizeMegaBytes()}
+ * to specify the size of the write batch.</p>
  */
 public class ElasticsearchIO {
 
-  public static Write write() {
-    return new Write(new Write.Writer(null, null, null, null, null, 1000L, 5));
+  public static Read read() {
+    return new AutoValue_ElasticsearchIO_Read.Builder().build();
   }
 
-  public static Read read() {
-    return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null, null,
-        null, null));
+  public static Write write() {
+    return new AutoValue_ElasticsearchIO_Write.Builder().setBatchSize(1000L)
+        .setBatchSizeMegaBytes(5).build();
   }
 
   private ElasticsearchIO() {
   }
 
   /**
+   * A POJO describing a connection configuration to Elasticsearch.
+   */
+  @AutoValue
+  public abstract static class ConnectionConfiguration implements Serializable {
+
+    abstract String getAddress();
+    @Nullable abstract String getUsername();
+    @Nullable abstract String getPassword();
+    abstract String getIndex();
+    abstract String getType();
+
+    abstract Builder builder();
+
+    @AutoValue.Builder
+    abstract static class Builder {
+      abstract Builder setAddress(String address);
+      abstract Builder setUsername(String username);
+      abstract Builder setPassword(String password);
+      abstract Builder setIndex(String index);
+      abstract Builder setType(String type);
+      abstract ConnectionConfiguration build();
+    }
+
+    public static ConnectionConfiguration create(String address, String index, String type) {
+      checkNotNull(address, "address");
+      checkNotNull(index, "index");
+      checkNotNull(type, "type");
+      return new AutoValue_ElasticsearchIO_ConnectionConfiguration.Builder()
+          .setAddress(address)
+          .setIndex(index)
+          .setType(type)
+          .build();
+    }
+
+    public ConnectionConfiguration withUsername(String username) {
+      return builder().setUsername(username).build();
+    }
+
+    public ConnectionConfiguration withPassword(String password) {
+      return builder().setPassword(password).build();
+    }
+
+    private void populateDisplayData(DisplayData.Builder builder) {
+      builder.add(DisplayData.item("address", getAddress()));
+      builder.add(DisplayData.item("index", getIndex()));
+      builder.add(DisplayData.item("type", getType()));
+      builder.addIfNotNull(DisplayData.item("username", getUsername()));
+    }
+
+    private JestClient createClient() {
+      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(getAddress())
+          //          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
+          .multiThreaded(true);
+      if (getUsername() != null) {
+        builder = builder.defaultCredentials(getUsername(), getPassword());
+      }
+      JestClientFactory factory = new JestClientFactory();
+      factory.setHttpClientConfig(builder.build());
+      return factory.getObject();
+    }
+
+  }
+
+  /**
    * A {@link PTransform} reading data from Elasticsearch.
    */
-  public static class Read extends PTransform<PBegin, PCollection<String>> {
+  @AutoValue
+  public abstract static class Read extends PTransform<PBegin, PCollection<String>> {
+    @Nullable abstract ConnectionConfiguration getConnectionConfiguration();
+    @Nullable abstract String getQuery();
 
-    public Read withAddress(String address) {
-      return new Read(source.withAddress(address));
+    abstract Builder builder();
+
+    @AutoValue.Builder
+    abstract static class Builder {
+      abstract Builder setConnectionConfiguration(ConnectionConfiguration connectionConfiguration);
+      abstract Builder setQuery(String query);
+      abstract Read build();
     }
 
-    public Read withUsername(String username) {
-      return new Read(source.withUsername(username));
-    }
-
-    public Read withPassword(String password) {
-      return new Read(source.withPassword(password));
+    public Read withConnectionConfiguration(ConnectionConfiguration connectionConfiguration) {
+      checkNotNull(connectionConfiguration, "connectionConfiguration");
+      return builder().setConnectionConfiguration(connectionConfiguration).build();
     }
 
     public Read withQuery(String query) {
-      return new Read(source.withQuery(query));
-    }
-
-    public Read withIndex(String index) {
-      return new Read(source.withIndex(index));
-    }
-
-    public Read withType(String type) {
-      return new Read(source.withType(type));
-    }
-
-    private final BoundedElasticsearchSource source;
-
-    private Read(BoundedElasticsearchSource source) {
-      this.source = source;
+      checkNotNull(query, "query");
+      return builder().setQuery(query).build();
     }
 
     @Override
     public PCollection<String> apply(PBegin input) {
-      return input.apply(org.apache.beam.sdk.io.Read.from(getSource()));
+      return input.apply(org.apache.beam.sdk.io.Read.from(
+          new BoundedElasticsearchSource(this, null, null, null)
+      ));
     }
 
-    public BoundedElasticsearchSource getSource() {
-      return source;
+    @Override
+    public void validate(PBegin input) {
+      checkNotNull(getConnectionConfiguration(), "connectionConfiguration");
+    }
+
+    @Override
+    public void populateDisplayData(DisplayData.Builder builder) {
+      super.populateDisplayData(builder);
+      builder.addIfNotNull(DisplayData.item(getQuery(), "query"));
+      getConnectionConfiguration().populateDisplayData(builder);
     }
 
   }
@@ -161,15 +233,7 @@ public class ElasticsearchIO {
    */
   protected static class BoundedElasticsearchSource extends BoundedSource<String> {
 
-    private final String address;
-    @Nullable
-    private final String username;
-    @Nullable
-    private final String password;
-    @Nullable
-    private final String query;
-    private final String index;
-    private final String type;
+    private ElasticsearchIO.Read spec;
     @Nullable
     private final String shardPreference;
     @Nullable
@@ -177,76 +241,24 @@ public class ElasticsearchIO {
     @Nullable
     private final Integer offset;
 
-    private BoundedElasticsearchSource(String address, String username, String password,
-                                       String query, String index, String type,
-                                       String shardPreference, Long sizeToRead,
+    protected BoundedElasticsearchSource(Read spec, String shardPreference, Long sizeToRead,
                                        Integer offset) {
-      this.address = address;
-      this.username = username;
-      this.password = password;
-      this.query = query;
-      this.index = index;
-      this.type = type;
+      this.spec = spec;
       this.shardPreference = shardPreference;
       this.sizeToRead = sizeToRead;
       this.offset = offset;
     }
 
-    public BoundedElasticsearchSource withAddress(String address) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
-    }
-
-    public BoundedElasticsearchSource withUsername(String username) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
-    }
-
-    public BoundedElasticsearchSource withPassword(String password) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
-    }
-
-    public BoundedElasticsearchSource withQuery(String query) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
-    }
-
-    public BoundedElasticsearchSource withIndex(String index) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
-    }
-
-    public BoundedElasticsearchSource withType(String type) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
-    }
-
     public BoundedElasticsearchSource withShardPreference(String shardPreference) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
+      return new BoundedElasticsearchSource(spec, shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withSizeToRead(Long sizeToRead) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
+      return new BoundedElasticsearchSource(spec, shardPreference, sizeToRead, offset);
     }
 
     public BoundedElasticsearchSource withOffset(Integer offset) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-          shardPreference, sizeToRead, offset);
-    }
-
-    private JestClient createClient() {
-      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
-          //          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
-          .multiThreaded(true);
-      if (username != null) {
-        builder = builder.defaultCredentials(username, password);
-      }
-      JestClientFactory factory = new JestClientFactory();
-      factory.setHttpClientConfig(builder.build());
-      return factory.getObject();
+      return new BoundedElasticsearchSource(spec, shardPreference, sizeToRead, offset);
     }
 
     @Override
@@ -255,15 +267,18 @@ public class ElasticsearchIO {
         throws Exception {
       List<BoundedElasticsearchSource> sources = new ArrayList<>();
 
-      JestClient client = createClient();
-      Stats stats = new Stats.Builder().addIndex(index).setParameter("level", "shards").build();
+      JestClient client = spec.getConnectionConfiguration().createClient();
+      Stats stats = new Stats.Builder().addIndex(spec.getConnectionConfiguration().getIndex())
+          .setParameter("level", "shards").build();
       JestResult result = client.execute(stats);
       client.shutdownClient();
 
       if (result.isSucceeded()) {
         JsonObject jsonObject = result.getJsonObject();
         JsonObject shardsJson =
-            jsonObject.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("shards");
+            jsonObject.getAsJsonObject("indices")
+                .getAsJsonObject(spec.getConnectionConfiguration().getIndex())
+                .getAsJsonObject("shards");
         Set<Map.Entry<String, JsonElement>> entries = shardsJson.entrySet();
         for (Map.Entry<String, JsonElement> shardJson : entries) {
           String shardId = shardJson.getKey();
@@ -295,8 +310,9 @@ public class ElasticsearchIO {
 
     @Override
     public long getEstimatedSizeBytes(PipelineOptions options) throws IOException {
-      JestClient client = createClient();
-      Stats stats = new Stats.Builder().addIndex(index).build();
+      JestClient client = spec.getConnectionConfiguration().createClient();
+      Stats stats = new Stats.Builder().addIndex(spec.getConnectionConfiguration().getIndex())
+          .build();
       JestResult result = client.execute(stats);
       client.shutdownClient();
       if (result.isSucceeded()) {
@@ -307,17 +323,20 @@ public class ElasticsearchIO {
 
     //protected to be callable from test
     protected long getAverageDocSize() throws IOException {
-      JestClient client = createClient();
-      Stats stats = new Stats.Builder().addIndex(index).build();
+      JestClient client = spec.getConnectionConfiguration().createClient();
+      Stats stats = new Stats.Builder().addIndex(spec.getConnectionConfiguration().getIndex())
+          .build();
       JestResult result = client.execute(stats);
       client.shutdownClient();
       if (!result.isSucceeded()) {
-        throw new IOException("Cannot get average size of doc in index " + index);
+        throw new IOException("Cannot get average size of doc in index "
+            + spec.getConnectionConfiguration().getIndex());
       } else {
         JsonObject jsonResult = result.getJsonObject();
         JsonObject statsJson =
-            jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject
-                ("primaries");
+            jsonResult.getAsJsonObject("indices")
+                .getAsJsonObject(spec.getConnectionConfiguration().getIndex())
+                .getAsJsonObject("primaries");
         JsonObject storeJson = statsJson.getAsJsonObject("store");
         long sizeOfIndex = storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
         JsonObject docsJson = statsJson.getAsJsonObject("docs");
@@ -329,11 +348,8 @@ public class ElasticsearchIO {
 
     @Override
     public void populateDisplayData(DisplayData.Builder builder) {
-      builder.add(DisplayData.item("address", address));
-      builder.add(DisplayData.item("index", index));
-      builder.add(DisplayData.item("type", type));
+      spec.populateDisplayData(builder);
       builder.addIfNotNull(DisplayData.item("documents offset", offset));
-      builder.addIfNotNull(DisplayData.item("query", query));
       builder.addIfNotNull(DisplayData.item("shard", shardPreference));
       builder.addIfNotNull(DisplayData.item("sizeToRead", sizeToRead));
     }
@@ -341,7 +357,9 @@ public class ElasticsearchIO {
     private long getIndexSize(JestResult result) {
       JsonObject jsonResult = result.getJsonObject();
       JsonObject statsJson =
-          jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("primaries");
+          jsonResult.getAsJsonObject("indices")
+              .getAsJsonObject(spec.getConnectionConfiguration().getIndex())
+              .getAsJsonObject("primaries");
       JsonObject storeJson = statsJson.getAsJsonObject("store");
       return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
@@ -358,9 +376,7 @@ public class ElasticsearchIO {
 
     @Override
     public void validate() {
-      checkNotNull(address, "address is a mandatory parameter");
-      checkNotNull(index, "index is a mandatory parameter");
-      checkNotNull(type, "type is a mandatory parameter");
+      spec.validate(null);
     }
 
     @Override
@@ -385,7 +401,9 @@ public class ElasticsearchIO {
 
     @Override
     public boolean start() throws IOException {
-      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(source.address)
+      /*
+      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(
+          source.spec.getConnectionConfiguration().getAddress())
           //org.apache.http.NoHttpResponseException: ... failed to respond
           //is still present even after upgrading jest (and http-client) and even after setting
           // maxConnectionIdleTime as recommended
@@ -394,14 +412,16 @@ public class ElasticsearchIO {
 //          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
 //          .readTimeout(20)
           .multiThreaded(true);
-      if (source.username != null) {
+      if (source.spec.getConnectionConfiguration() != null) {
         builder = builder.defaultCredentials(source.username, source.password);
       }
       JestClientFactory factory = new JestClientFactory();
       factory.setHttpClientConfig(builder.build());
       client = factory.getObject();
+      */
+      client = source.spec.getConnectionConfiguration().createClient();
 
-      String query = source.query;
+      String query = source.spec.getQuery();
       if (query == null) {
         query = "{\n"
             + "  \"query\": {\n"
@@ -420,8 +440,8 @@ public class ElasticsearchIO {
         nbDocsRead = 0;
         desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
       }
-      searchBuilder.addIndex(source.index);
-      searchBuilder.addType(source.type);
+      searchBuilder.addIndex(source.spec.getConnectionConfiguration().getIndex());
+      searchBuilder.addType(source.spec.getConnectionConfiguration().getType());
       return advance();
     }
 
@@ -481,127 +501,62 @@ public class ElasticsearchIO {
   /**
    * A {@link PTransform} writing data to Elasticsearch.
    */
-  public static class Write extends PTransform<PCollection<String>, PDone> {
+  @AutoValue
+  public abstract static class Write extends PTransform<PCollection<String>, PDone> {
 
-    public Write withAddress(String address) {
-      return new Write(writer.withAddress(address));
+    @Nullable abstract ConnectionConfiguration getConnectionConfiguration();
+    abstract long getBatchSize();
+    abstract int getBatchSizeMegaBytes();
+
+    abstract Builder builder();
+
+    @AutoValue.Builder
+    abstract static class Builder {
+      abstract Builder setConnectionConfiguration(ConnectionConfiguration connectionConfiguration);
+      abstract Builder setBatchSize(long batchSize);
+      abstract Builder setBatchSizeMegaBytes(int batchSizeMegaBytes);
+      abstract Write build();
     }
 
-    public Write withUsername(String username) {
-      return new Write(writer.withUsername(username));
-    }
-
-    public Write withPassword(String password) {
-      return new Write(writer.withPassword(password));
-    }
-
-    public Write withIndex(String index) {
-      return new Write(writer.withIndex(index));
-    }
-
-    public Write withType(String type) {
-      return new Write(writer.withType(type));
+    public Write withConnectionConfiguration(ConnectionConfiguration connectionConfiguration) {
+      return builder().setConnectionConfiguration(connectionConfiguration).build();
     }
 
     public Write withBatchSize(long batchSize) {
-      return new Write(writer.withBatchSize(batchSize));
+      return builder().setBatchSize(batchSize).build();
     }
 
     public Write withBatchSizeMegaBytes(int batchSizeMegaBytes) {
-      return new Write(writer.withBatchSizeMegaBytes(batchSizeMegaBytes));
+      return builder().setBatchSizeMegaBytes(batchSizeMegaBytes).build();
     }
 
-    private final Writer writer;
-
-    private Write(Writer writer) {
-      this.writer = writer;
+    @Override
+    public void validate(PCollection<String> input) {
+      checkNotNull(getConnectionConfiguration(), "connectionConfiguration");
     }
 
     @Override
     public PDone apply(PCollection<String> input) {
-      input.apply(ParDo.of(writer));
+      input.apply(ParDo.of(new WriterFn(this)));
       return PDone.in(input.getPipeline());
     }
 
-    private static class Writer extends DoFn<String, Void> {
+    private static class WriterFn extends DoFn<String, Void> {
 
-      private final String address;
-      private final String username;
-      private final String password;
-      private final String index;
-      private final String type;
-      private final long batchSize;
-      //byte size of bacth in MB
-      private final int batchSizeMegaBytes;
+      private Write spec;
 
       private JestClient client;
       private ArrayList<Index> batch;
       private long currentBatchSizeBytes;
 
-      public Writer(String address, String username, String password, String index,
-                    String type, long batchSize, int batchSizeMegaBytes) {
-        this.address = address;
-        this.username = username;
-        this.password = password;
-        this.index = index;
-        this.type = type;
-        this.batchSize = batchSize;
-        this.batchSizeMegaBytes = batchSizeMegaBytes;
-      }
-
-      public Writer withAddress(String address) {
-        return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
-      }
-
-      public Writer withUsername(String username) {
-        return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
-      }
-
-      public Writer withPassword(String password) {
-        return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
-      }
-
-      public Writer withIndex(String index) {
-        return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
-      }
-
-      public Writer withType(String type) {
-        return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
-      }
-
-      public Writer withBatchSize(long batchSize) {
-        return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
-      }
-
-      public Writer withBatchSizeMegaBytes(int batchSizeMegaBytes) {
-        return new Writer(address, username, password, index, type, batchSize,
-            batchSizeMegaBytes);
-      }
-
-      public void validate() {
-        checkNotNull(address, "address");
-        checkNotNull(index, "index");
-        checkNotNull(type, "type");
+      public WriterFn(Write spec) {
+        this.spec = spec;
       }
 
       @Setup
       public void createClient() throws Exception {
         if (client == null) {
-          HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
-              //              .maxConnectionIdleTime(10, TimeUnit.SECONDS)
-              .multiThreaded(true);
-          if (username != null) {
-            builder = builder.defaultCredentials(username, password);
-          }
-          JestClientFactory factory = new JestClientFactory();
-          factory.setHttpClientConfig(builder.build());
-          client = factory.getObject();
+          client = spec.getConnectionConfiguration().createClient();
         }
       }
 
@@ -614,10 +569,12 @@ public class ElasticsearchIO {
       @ProcessElement
       public void processElement(ProcessContext context) throws Exception {
         String json = context.element();
-        batch.add(new Index.Builder(json).index(index).type(type).build());
+        batch.add(new Index.Builder(json).index(spec.getConnectionConfiguration().getIndex())
+            .type(spec.getConnectionConfiguration().getType())
+            .build());
         currentBatchSizeBytes += json.getBytes().length;
-        if (batch.size() >= batchSize
-            || currentBatchSizeBytes >= (batchSizeMegaBytes * 1024 * 1024)) {
+        if (batch.size() >= spec.getBatchSize()
+            || currentBatchSizeBytes >= (spec.getBatchSizeMegaBytes() * 1024 * 1024)) {
           finishBundle(context);
         }
       }
@@ -626,8 +583,8 @@ public class ElasticsearchIO {
       public void finishBundle(Context context) throws Exception {
         if (batch.size() > 0) {
           Bulk bulk = new Bulk.Builder()
-              .defaultIndex(index)
-              .defaultType(type)
+              .defaultIndex(spec.getConnectionConfiguration().getIndex())
+              .defaultType(spec.getConnectionConfiguration().getType())
               .addAction(batch)
               .build();
           BulkResult result = client.execute(bulk);
