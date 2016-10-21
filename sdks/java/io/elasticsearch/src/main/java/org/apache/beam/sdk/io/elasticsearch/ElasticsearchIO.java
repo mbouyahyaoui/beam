@@ -388,7 +388,6 @@ public class ElasticsearchIO {
     private String scheme;
     private RestClient client;
 
-
     public void setEndPoint(String endPoint) {
       this.endPoint = endPoint;
     }
@@ -490,7 +489,8 @@ public class ElasticsearchIO {
       if (result.getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
         return false;
       }
-      current = result.getAsJsonPrimitive("_source").getAsString();
+      current = result.getAsJsonObject("hits").getAsJsonArray("hits").get(0)
+          .getAsJsonObject().getAsJsonObject("_source").toString();
       nbDocsRead++;
       return true;
     }
