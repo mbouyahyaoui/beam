@@ -380,13 +380,14 @@ public class ElasticsearchIO {
     }
   }
 
-  private class Requester {
+  private static class Requester {
 
     private HttpEntity entity;
     private Map<String, String> params;
     private String endPoint;
     private String scheme;
     private RestClient client;
+
 
     public void setEndPoint(String endPoint) {
       this.endPoint = endPoint;
