@@ -21,9 +21,16 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import io.searchbox.client.JestClient;
+import io.searchbox.client.JestClientFactory;
+import io.searchbox.client.config.HttpClientConfig;
+import io.searchbox.core.Bulk;
+import io.searchbox.core.BulkResult;
+import io.searchbox.core.Index;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
+import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -32,12 +39,15 @@ import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
+import org.apache.http.HttpEntity;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
+import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
+import org.apache.http.nio.entity.NStringEntity;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
@@ -236,24 +246,24 @@ public class ElasticsearchIO {
 
     private RestClient createClient() throws MalformedURLException {
 
-        URL url = new URL(address);
-        RestClientBuilder restClientBuilder = RestClient.builder(
-            new HttpHost(url.getHost(), url.getPort(), url.getProtocol()));
-        if (username != null) {
-          final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
-          credentialsProvider.setCredentials(AuthScope.ANY,
-                                             new UsernamePasswordCredentials(username, password));
+      URL url = new URL(address);
+      RestClientBuilder restClientBuilder = RestClient.builder(
+          new HttpHost(url.getHost(), url.getPort(), url.getProtocol()));
+      if (username != null) {
+        final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+        credentialsProvider.setCredentials(AuthScope.ANY,
+                                           new UsernamePasswordCredentials(username, password));
 
-          restClientBuilder.setHttpClientConfigCallback(
-              new RestClientBuilder.HttpClientConfigCallback() {
-                @Override
-                public HttpAsyncClientBuilder customizeHttpClient(
-                    HttpAsyncClientBuilder httpClientBuilder) {
-                  return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
-                }
-              });
-        }
-        return restClientBuilder.build();
+        restClientBuilder.setHttpClientConfigCallback(
+            new RestClientBuilder.HttpClientConfigCallback() {
+              @Override
+              public HttpAsyncClientBuilder customizeHttpClient(
+                  HttpAsyncClientBuilder httpClientBuilder) {
+                return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
+              }
+            });
+      }
+      return restClientBuilder.build();
     }
 
     @Override
@@ -297,16 +307,14 @@ public class ElasticsearchIO {
 
     private JsonObject getStats(boolean shardLevel) throws IOException {
       RestClient client = createClient();
-      Map<String, String> params = new HashMap<>();
+      Requester requester = new Requester(client);
+      requester.setScheme("GET");
+      requester.setEndPoint(String.format("/%s/_stats", index));
       if (shardLevel) {
-        params.put("level", "shards");
+        requester.setParameter("level", "shards");
       }
-      Response response =
-          client.performRequest("GET", String.format("/%s/_stats", index), params);
+      JsonObject jsonObject = requester.performRequest();
       client.close();
-      InputStream content = response.getEntity().getContent();
-      InputStreamReader inputStreamReader = new InputStreamReader(content, "UTF-8");
-      JsonObject jsonObject = new Gson().fromJson(inputStreamReader, JsonObject.class);
       return jsonObject;
     }
 
@@ -372,6 +380,48 @@ public class ElasticsearchIO {
     }
   }
 
+  private class Requester {
+
+    private HttpEntity entity;
+    private Map<String, String> params;
+    private String endPoint;
+    private String scheme;
+    private RestClient client;
+
+    public void setEndPoint(String endPoint) {
+      this.endPoint = endPoint;
+    }
+
+    public void setScheme(String scheme) {
+      this.scheme = scheme;
+    }
+
+    public void setParameter(String key, String value) {
+      params.put(key, value);
+    }
+
+    public void setQuery(String query) {
+      entity = new NStringEntity(query, ContentType.APPLICATION_JSON);
+    }
+
+    public Requester(RestClient client) {
+      this.client = client;
+      this.params = new HashMap<>();
+    }
+
+    public JsonObject performRequest() throws IOException {
+      //TODO test behaviour when entity is null, if bad, call performRequest that takes no entity
+      Response response =
+          client.performRequest(scheme, endPoint, params, entity);
+      InputStream content = response.getEntity().getContent();
+      InputStreamReader inputStreamReader = new InputStreamReader(content, "UTF-8");
+      JsonObject jsonObject = new Gson().fromJson(inputStreamReader, JsonObject.class);
+      return jsonObject;
+
+    }
+
+  }
+
   private static class BoundedElasticsearchReader extends BoundedSource.BoundedReader<String> {
 
     private final BoundedElasticsearchSource source;
@@ -380,7 +430,7 @@ public class ElasticsearchIO {
     private String current;
     private long desiredNbDocs;
     private long nbDocsRead;
-    private Search.Builder searchBuilder;
+    private Requester requester;
 
     public BoundedElasticsearchReader(BoundedElasticsearchSource source) {
       this.source = source;
@@ -389,7 +439,6 @@ public class ElasticsearchIO {
     @Override
     public boolean start() throws IOException {
       client = source.createClient();
-
       String query = source.query;
       if (query == null) {
         query = "{\n"
@@ -398,19 +447,19 @@ public class ElasticsearchIO {
             + "  }\n"
             + "}";
       }
-
-      searchBuilder = new Search.Builder(query);
+      requester = new Requester(client);
+      requester.setQuery(query);
       if (source.shardPreference != null) {
-        searchBuilder.setParameter("preference", source.shardPreference);
+        requester.setParameter("preference", source.shardPreference);
       }
-      searchBuilder.setParameter(Parameters.SIZE, 1);
+      requester.setParameter("size", String.valueOf(1));
       if (source.sizeToRead != null) {
         //we are in the case of splitting a shard
         nbDocsRead = 0;
         desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
       }
-      searchBuilder.addIndex(source.index);
-      searchBuilder.addType(source.type);
+      requester.setEndPoint(String.format("%s/%s/%s", source.index, source.type, "_search"));
+      requester.setScheme("GET");
       return advance();
     }
 
@@ -434,17 +483,13 @@ public class ElasticsearchIO {
       } else {
         from = nbDocsRead;
       }
-      searchBuilder.setParameter(Parameters.FROM, from);
-      Search search = searchBuilder.build();
-      SearchResult searchResult = client.execute(search);
-      if (!searchResult.isSucceeded()) {
-        throw new IOException("cannot perform request on ES");
-      }
+      requester.setParameter("from", String.valueOf(from));
+      JsonObject result = requester.performRequest();
       //stop if no more data
-      if (searchResult.getJsonObject().getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
+      if (result.getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
         return false;
       }
-      current = searchResult.getSourceAsString();
+      current = result.getAsJsonPrimitive("_source").getAsString();
       nbDocsRead++;
       return true;
     }
@@ -523,7 +568,7 @@ public class ElasticsearchIO {
       //byte size of bacth in MB
       private final int batchSizeMegaBytes;
 
-      private RestClient client;
+      private JestClient client;
       private ArrayList<Index> batch;
       private long currentBatchSizeBytes;
 
@@ -582,24 +627,15 @@ public class ElasticsearchIO {
       @Setup
       public void createClient() throws Exception {
         if (client == null) {
-          URL url = new URL(address);
-          RestClientBuilder restClientBuilder = RestClient.builder(
-              new HttpHost(url.getHost(), url.getPort(), url.getProtocol()));
+          HttpClientConfig.Builder builder = new HttpClientConfig.Builder(address)
+              //              .maxConnectionIdleTime(10, TimeUnit.SECONDS)
+              .multiThreaded(true);
           if (username != null) {
-            final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
-            credentialsProvider.setCredentials(AuthScope.ANY,
-                                               new UsernamePasswordCredentials(username, password));
-
-            restClientBuilder.setHttpClientConfigCallback(
-                new RestClientBuilder.HttpClientConfigCallback() {
-                  @Override
-                  public HttpAsyncClientBuilder customizeHttpClient(
-                      HttpAsyncClientBuilder httpClientBuilder) {
-                    return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
-                  }
-                });
+            builder = builder.defaultCredentials(username, password);
           }
-          client = restClientBuilder.build();
+          JestClientFactory factory = new JestClientFactory();
+          factory.setHttpClientConfig(builder.build());
+          client = factory.getObject();
         }
       }
 
@@ -643,7 +679,7 @@ public class ElasticsearchIO {
       @Teardown
       public void closeClient() throws Exception {
         if (client != null) {
-          client.close();
+          client.shutdownClient();
         }
       }
 
