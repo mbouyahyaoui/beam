@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -32,15 +33,22 @@ import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.http.HttpHost;
-import org.apache.http.client.config.RequestConfig;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
+import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientBuilder;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.*;
-import org.apache.http.client.config.RequestConfig.Builder;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -228,13 +236,24 @@ public class ElasticsearchIO {
 
     private RestClient createClient() throws MalformedURLException {
 
-      URL url = new URL(address);
-      RestClient restClient = RestClient.builder(
-          new HttpHost(url.getHost(), url.getPort(), url.getProtocol())).build();
-      if (username != null) {
-        //TODO pass authentication with org.apache.http.client.config.RequestConfig.Builder
-      }
-      return restClient;
+        URL url = new URL(address);
+        RestClientBuilder restClientBuilder = RestClient.builder(
+            new HttpHost(url.getHost(), url.getPort(), url.getProtocol()));
+        if (username != null) {
+          final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+          credentialsProvider.setCredentials(AuthScope.ANY,
+                                             new UsernamePasswordCredentials(username, password));
+
+          restClientBuilder.setHttpClientConfigCallback(
+              new RestClientBuilder.HttpClientConfigCallback() {
+                @Override
+                public HttpAsyncClientBuilder customizeHttpClient(
+                    HttpAsyncClientBuilder httpClientBuilder) {
+                  return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
+                }
+              });
+        }
+        return restClientBuilder.build();
     }
 
     @Override
@@ -243,13 +262,8 @@ public class ElasticsearchIO {
         throws Exception {
       List<BoundedElasticsearchSource> sources = new ArrayList<>();
 
-      JestClient client = createClient();
-      Stats stats = new Stats.Builder().addIndex(index).setParameter("level", "shards").build();
-      JestResult result = client.execute(stats);
-      client.shutdownClient();
-
-      if (result.isSucceeded()) {
-        JsonObject jsonObject = result.getJsonObject();
+      try {
+        JsonObject jsonObject = getStats(true);
         JsonObject shardsJson =
             jsonObject.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("shards");
         Set<Map.Entry<String, JsonElement>> entries = shardsJson.entrySet();
@@ -275,43 +289,52 @@ public class ElasticsearchIO {
             }
           }
         }
-      } else {
+      } catch (IOException ex) {
         sources.add(this);
       }
       return sources;
     }
 
-    @Override
-    public long getEstimatedSizeBytes(PipelineOptions options) throws IOException {
-      JestClient client = createClient();
-      Stats stats = new Stats.Builder().addIndex(index).build();
-      JestResult result = client.execute(stats);
-      client.shutdownClient();
-      if (result.isSucceeded()) {
-        return getIndexSize(result);
+    private JsonObject getStats(boolean shardLevel) throws IOException {
+      RestClient client = createClient();
+      Map<String, String> params = new HashMap<>();
+      if (shardLevel) {
+        params.put("level", "shards");
       }
-      return 0;
+      Response response =
+          client.performRequest("GET", String.format("/%s/_stats", index), params);
+      client.close();
+      InputStream content = response.getEntity().getContent();
+      InputStreamReader inputStreamReader = new InputStreamReader(content, "UTF-8");
+      JsonObject jsonObject = new Gson().fromJson(inputStreamReader, JsonObject.class);
+      return jsonObject;
+    }
+
+    @Override
+    public long getEstimatedSizeBytes(PipelineOptions options) {
+
+      try {
+        JsonObject stats = getStats(false);
+        JsonObject indexStats =
+            stats.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("primaries");
+        JsonObject store = indexStats.getAsJsonObject("store");
+        return store.getAsJsonPrimitive("size_in_bytes").getAsLong();
+      } catch (IOException e) {
+        return 0;
+      }
     }
 
     //protected to be callable from test
     protected long getAverageDocSize() throws IOException {
-      JestClient client = createClient();
-      Stats stats = new Stats.Builder().addIndex(index).build();
-      JestResult result = client.execute(stats);
-      client.shutdownClient();
-      if (!result.isSucceeded()) {
-        throw new IOException("Cannot get average size of doc in index " + index);
-      } else {
-        JsonObject jsonResult = result.getJsonObject();
-        JsonObject statsJson =
-            jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject
-                ("primaries");
-        JsonObject storeJson = statsJson.getAsJsonObject("store");
-        long sizeOfIndex = storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
-        JsonObject docsJson = statsJson.getAsJsonObject("docs");
-        long nbDocsInIndex = docsJson.getAsJsonPrimitive("count").getAsLong();
-        return sizeOfIndex / nbDocsInIndex;
-      }
+      JsonObject stats = getStats(false);
+      JsonObject indexStats =
+          stats.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject
+              ("primaries");
+      JsonObject store = indexStats.getAsJsonObject("store");
+      long sizeOfIndex = store.getAsJsonPrimitive("size_in_bytes").getAsLong();
+      JsonObject docs = indexStats.getAsJsonObject("docs");
+      long nbDocsInIndex = docs.getAsJsonPrimitive("count").getAsLong();
+      return sizeOfIndex / nbDocsInIndex;
 
     }
 
@@ -324,14 +347,6 @@ public class ElasticsearchIO {
       builder.addIfNotNull(DisplayData.item("query", query));
       builder.addIfNotNull(DisplayData.item("shard", shardPreference));
       builder.addIfNotNull(DisplayData.item("sizeToRead", sizeToRead));
-    }
-
-    private long getIndexSize(JestResult result) {
-      JsonObject jsonResult = result.getJsonObject();
-      JsonObject statsJson =
-          jsonResult.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("primaries");
-      JsonObject storeJson = statsJson.getAsJsonObject("store");
-      return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
 
     @Override
@@ -373,21 +388,7 @@ public class ElasticsearchIO {
 
     @Override
     public boolean start() throws IOException {
-      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(source.address)
-      //org.apache.http.NoHttpResponseException: ... failed to respond
-          //is still present even after upgrading jest (and http-client) and even after setting
-          // maxConnectionIdleTime as recommended
-      //https://www.bountysource.com/issues/9650168-jest-and-apache-http-client-4-4-error
-          //increasing timeout does not fix the problem either, multi-thread=false either
-//          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
-//          .readTimeout(20)
-          .multiThreaded(true);
-      if (source.username != null) {
-        builder = builder.defaultCredentials(source.username, source.password);
-      }
-      JestClientFactory factory = new JestClientFactory();
-      factory.setHttpClientConfig(builder.build());
-      client = factory.getObject();
+      client = source.createClient();
 
       String query = source.query;
       if (query == null) {
@@ -582,12 +583,23 @@ public class ElasticsearchIO {
       public void createClient() throws Exception {
         if (client == null) {
           URL url = new URL(address);
-          RestClient restClient = RestClient.builder(
-              new HttpHost(url.getHost(), url.getPort(), url.getProtocol())).build();
+          RestClientBuilder restClientBuilder = RestClient.builder(
+              new HttpHost(url.getHost(), url.getPort(), url.getProtocol()));
           if (username != null) {
-            //TODO pass authentication with org.apache.http.client.config.RequestConfig.Builder
+            final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+            credentialsProvider.setCredentials(AuthScope.ANY,
+                                               new UsernamePasswordCredentials(username, password));
+
+            restClientBuilder.setHttpClientConfigCallback(
+                new RestClientBuilder.HttpClientConfigCallback() {
+                  @Override
+                  public HttpAsyncClientBuilder customizeHttpClient(
+                      HttpAsyncClientBuilder httpClientBuilder) {
+                    return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
+                  }
+                });
           }
-          client = restClient;
+          client = restClientBuilder.build();
         }
       }
 
