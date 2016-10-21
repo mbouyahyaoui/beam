@@ -458,7 +458,7 @@ public class ElasticsearchIO {
         nbDocsRead = 0;
         desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
       }
-      requester.setEndPoint(String.format("%s/%s/%s", source.index, source.type, "_search"));
+      requester.setEndPoint(String.format("/%s/%s/%s", source.index, source.type, "_search"));
       requester.setScheme("GET");
       return advance();
     }
