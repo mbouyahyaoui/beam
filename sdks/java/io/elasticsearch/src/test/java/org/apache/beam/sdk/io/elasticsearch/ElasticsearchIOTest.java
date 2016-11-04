@@ -32,7 +32,6 @@ import io.searchbox.indices.IndicesExists;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
-import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.List;
 
