@@ -58,16 +58,16 @@ import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 
 /**
- * <p>IO to read and write data on Elasticsearch.</p>
+ * <p>IO to read and write data on Elasticsearch.
  *
  * <h3>Reading from Elasticsearch</h3>
  *
  * <p>ElasticsearchIO source returns a bounded collection of String representing JSON document
- * as {@code PCollection<String>}.</p>
+ * as {@code PCollection<String>}.
  *
  * <p>To configure the Elasticsearch source, you have to provide a connection configuration
  * containing the HTTP address of the instance, an index name and a type. The following example
- * illustrates various options for configuring the source:</p>
+ * illustrates various options for configuring the source:
  *
  * <pre>{@code
  *
@@ -78,16 +78,16 @@ import org.apache.beam.sdk.values.PDone;
  * }</pre>
  *
  * <p>The connection configuration also accepts optional configuration: {@code withUsername()} and
- * {@code withPassword()}.</p>
+ * {@code withPassword()}.
  *
- * <p>You can also specify a query on the {@code read()} using {@code withQuery()}.</p>
+ * <p>You can also specify a query on the {@code read()} using {@code withQuery()}.
  *
  * <h3>Writing to Elasticsearch</h3>
  *
- * <p>ElasticsearchIO supports sink to write documents (as JSON String).</p>
+ * <p>ElasticsearchIO supports sink to write documents (as JSON String).
  *
  * <p>To configure Elasticsearch sink, similar to the read, you have to provide a connection
- * configuration. For instance:</p>
+ * configuration. For instance:
  *
  * <pre>{@code
  *
@@ -100,7 +100,7 @@ import org.apache.beam.sdk.values.PDone;
  * }</pre>
  *
  * <p>Optionally, you can provide {@code withBatchSize()} and {@code withBatchSizeMegaBytes()}
- * to specify the size of the write batch.</p>
+ * to specify the size of the write batch.
  */
 public class ElasticsearchIO {
 
@@ -168,7 +168,6 @@ public class ElasticsearchIO {
 
     private JestClient createClient() {
       HttpClientConfig.Builder builder = new HttpClientConfig.Builder(getAddress())
-          //          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
           .multiThreaded(true);
       if (getUsername() != null) {
         builder = builder.defaultCredentials(getUsername(), getPassword());
