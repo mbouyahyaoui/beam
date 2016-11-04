@@ -222,7 +222,7 @@ public class ElasticsearchIO {
     @Override
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
-      builder.addIfNotNull(DisplayData.item(getQuery(), "query"));
+      builder.addIfNotNull(DisplayData.item("query", getQuery()));
       getConnectionConfiguration().populateDisplayData(builder);
     }
 
