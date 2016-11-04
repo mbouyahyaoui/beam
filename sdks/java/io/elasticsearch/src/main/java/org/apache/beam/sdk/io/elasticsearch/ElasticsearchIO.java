@@ -20,24 +20,19 @@ package org.apache.beam.sdk.io.elasticsearch;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
-import com.google.gson.JsonArray;
+import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import io.searchbox.client.JestClient;
-import io.searchbox.client.JestClientFactory;
-import io.searchbox.client.JestResult;
-import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.core.Bulk;
-import io.searchbox.core.BulkResult;
-import io.searchbox.core.Index;
-import io.searchbox.core.Search;
-import io.searchbox.core.SearchResult;
-import io.searchbox.indices.Stats;
-import io.searchbox.params.Parameters;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Serializable;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -56,6 +51,19 @@ import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpHost;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.entity.ContentType;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
+import org.apache.http.message.BasicHeader;
+import org.apache.http.nio.entity.NStringEntity;
+import org.elasticsearch.client.Response;
+import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientBuilder;
 
 /**
  * <p>IO to read and write data on Elasticsearch.
@@ -116,6 +124,13 @@ public class ElasticsearchIO {
   private ElasticsearchIO() {
   }
 
+  private static JsonObject parseResponse(Response response) throws IOException {
+    InputStream content = response.getEntity().getContent();
+    InputStreamReader inputStreamReader = new InputStreamReader(content, "UTF-8");
+    JsonObject jsonObject = new Gson().fromJson(inputStreamReader, JsonObject.class);
+    return jsonObject;
+  }
+
   /**
    * A POJO describing a connection configuration to Elasticsearch.
    */
@@ -123,9 +138,15 @@ public class ElasticsearchIO {
   public abstract static class ConnectionConfiguration implements Serializable {
 
     abstract String getAddress();
-    @Nullable abstract String getUsername();
-    @Nullable abstract String getPassword();
+
+    @Nullable
+    abstract String getUsername();
+
+    @Nullable
+    abstract String getPassword();
+
     abstract String getIndex();
+
     abstract String getType();
 
     abstract Builder builder();
@@ -133,17 +154,22 @@ public class ElasticsearchIO {
     @AutoValue.Builder
     abstract static class Builder {
       abstract Builder setAddress(String address);
+
       abstract Builder setUsername(String username);
+
       abstract Builder setPassword(String password);
+
       abstract Builder setIndex(String index);
+
       abstract Builder setType(String type);
+
       abstract ConnectionConfiguration build();
     }
 
     public static ConnectionConfiguration create(String address, String index, String type) {
-      checkNotNull(address, "address");
-      checkNotNull(index, "index");
-      checkNotNull(type, "type");
+      checkNotNull(address, "address is required");
+      checkNotNull(index, "index name is required");
+      checkNotNull(type, "type is required");
       return new AutoValue_ElasticsearchIO_ConnectionConfiguration.Builder()
           .setAddress(address)
           .setIndex(index)
@@ -166,15 +192,24 @@ public class ElasticsearchIO {
       builder.addIfNotNull(DisplayData.item("username", getUsername()));
     }
 
-    private JestClient createClient() {
-      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(getAddress())
-          .multiThreaded(true);
+    private RestClient createClient() throws MalformedURLException {
+      URL url = new URL(getAddress());
+      RestClientBuilder restClientBuilder =
+          RestClient.builder(new HttpHost(url.getHost(), url.getPort(), url.getProtocol()));
       if (getUsername() != null) {
-        builder = builder.defaultCredentials(getUsername(), getPassword());
+        final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+        credentialsProvider.setCredentials(AuthScope.ANY,
+                                           new UsernamePasswordCredentials(getUsername(),
+                                                                           getPassword()));
+        restClientBuilder.setHttpClientConfigCallback(
+            new RestClientBuilder.HttpClientConfigCallback() {
+              public HttpAsyncClientBuilder customizeHttpClient(
+                  HttpAsyncClientBuilder httpAsyncClientBuilder) {
+                return httpAsyncClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
+              }
+            });
       }
-      JestClientFactory factory = new JestClientFactory();
-      factory.setHttpClientConfig(builder.build());
-      return factory.getObject();
+      return restClientBuilder.build();
     }
 
   }
@@ -184,15 +219,20 @@ public class ElasticsearchIO {
    */
   @AutoValue
   public abstract static class Read extends PTransform<PBegin, PCollection<String>> {
-    @Nullable abstract ConnectionConfiguration getConnectionConfiguration();
-    @Nullable abstract String getQuery();
+    @Nullable
+    abstract ConnectionConfiguration getConnectionConfiguration();
+
+    @Nullable
+    abstract String getQuery();
 
     abstract Builder builder();
 
     @AutoValue.Builder
     abstract static class Builder {
       abstract Builder setConnectionConfiguration(ConnectionConfiguration connectionConfiguration);
+
       abstract Builder setQuery(String query);
+
       abstract Read build();
     }
 
@@ -209,7 +249,7 @@ public class ElasticsearchIO {
     @Override
     public PCollection<String> apply(PBegin input) {
       return input.apply(org.apache.beam.sdk.io.Read.from(
-          new BoundedElasticsearchSource(this, null, null, null)
+          new BoundedElasticsearchSource(this, null)
       ));
     }
 
@@ -235,29 +275,14 @@ public class ElasticsearchIO {
     private ElasticsearchIO.Read spec;
     @Nullable
     private final String shardPreference;
-    @Nullable
-    private final Long sizeToRead;
-    @Nullable
-    private final Integer offset;
 
-    protected BoundedElasticsearchSource(Read spec, String shardPreference, Long sizeToRead,
-                                       Integer offset) {
+    protected BoundedElasticsearchSource(Read spec, String shardPreference) {
       this.spec = spec;
       this.shardPreference = shardPreference;
-      this.sizeToRead = sizeToRead;
-      this.offset = offset;
     }
 
     public BoundedElasticsearchSource withShardPreference(String shardPreference) {
-      return new BoundedElasticsearchSource(spec, shardPreference, sizeToRead, offset);
-    }
-
-    public BoundedElasticsearchSource withSizeToRead(Long sizeToRead) {
-      return new BoundedElasticsearchSource(spec, shardPreference, sizeToRead, offset);
-    }
-
-    public BoundedElasticsearchSource withOffset(Integer offset) {
-      return new BoundedElasticsearchSource(spec, shardPreference, sizeToRead, offset);
+      return new BoundedElasticsearchSource(spec, shardPreference);
     }
 
     @Override
@@ -266,101 +291,38 @@ public class ElasticsearchIO {
         throws Exception {
       List<BoundedElasticsearchSource> sources = new ArrayList<>();
 
-      JestClient client = spec.getConnectionConfiguration().createClient();
-      Stats stats = new Stats.Builder().addIndex(spec.getConnectionConfiguration().getIndex())
-          .setParameter("level", "shards").build();
-      JestResult result = client.execute(stats);
-      client.shutdownClient();
-
-      if (result.isSucceeded()) {
-        JsonObject jsonObject = result.getJsonObject();
-        JsonObject shardsJson =
-            jsonObject.getAsJsonObject("indices")
-                .getAsJsonObject(spec.getConnectionConfiguration().getIndex())
-                .getAsJsonObject("shards");
-        Set<Map.Entry<String, JsonElement>> entries = shardsJson.entrySet();
-        for (Map.Entry<String, JsonElement> shardJson : entries) {
-          String shardId = shardJson.getKey();
-          JsonArray value = (JsonArray) shardJson.getValue();
-          long shardSize =
-              value.get(0).getAsJsonObject().getAsJsonObject("store").getAsJsonPrimitive(
-                  "size_in_bytes").getAsLong();
-          String shardPreference = "_shards:" + shardId;
-          float nbBundlesFloat = (float) shardSize / desiredBundleSizeBytes;
-          int nbBundles = (int) Math.ceil(nbBundlesFloat);
-          if (nbBundles <= 1) {
-            // read all docs in the shard
-            sources.add(this.withShardPreference(shardPreference));
-          } else {
-            // split the shard into nbBundles chunks of desiredBundleSizeBytes by creating
-            // nbBundles sources
-            for (int i = 0; i < nbBundles; i++) {
-              sources.add(
-                  this.withShardPreference(shardPreference).withSizeToRead
-                      (desiredBundleSizeBytes).withOffset(i));
-            }
-          }
-        }
-      } else {
-        sources.add(this);
+      // we split per shard
+      // unfortunately, Elasticsearch 2.x doesn't provide a way to do parallel reads on a single
+      // shard
+      JsonObject statsJson = getStats(true);
+      JsonObject shardsJson = statsJson.getAsJsonObject("indices")
+          .getAsJsonObject(spec.getConnectionConfiguration().getIndex())
+          .getAsJsonObject("shards");
+      Set<Map.Entry<String, JsonElement>> shards = shardsJson.entrySet();
+      for (Map.Entry<String, JsonElement> shardJson : shards) {
+        String shardId = shardJson.getKey();
+        sources.add(new BoundedElasticsearchSource(spec, shardId));
       }
       return sources;
     }
 
     @Override
-    public long getEstimatedSizeBytes(PipelineOptions options) throws IOException {
-      JestClient client = spec.getConnectionConfiguration().createClient();
-      Stats stats = new Stats.Builder().addIndex(spec.getConnectionConfiguration().getIndex())
-          .build();
-      JestResult result = client.execute(stats);
-      client.shutdownClient();
-      if (result.isSucceeded()) {
-        return getIndexSize(result);
-      }
-      return 0;
-    }
-
-    //protected to be callable from test
-    protected long getAverageDocSize() throws IOException {
-      JestClient client = spec.getConnectionConfiguration().createClient();
-      Stats stats = new Stats.Builder().addIndex(spec.getConnectionConfiguration().getIndex())
-          .build();
-      JestResult result = client.execute(stats);
-      client.shutdownClient();
-      if (!result.isSucceeded()) {
-        throw new IOException("Cannot get average size of doc in index "
-            + spec.getConnectionConfiguration().getIndex());
-      } else {
-        JsonObject jsonResult = result.getJsonObject();
-        JsonObject statsJson =
-            jsonResult.getAsJsonObject("indices")
-                .getAsJsonObject(spec.getConnectionConfiguration().getIndex())
-                .getAsJsonObject("primaries");
-        JsonObject storeJson = statsJson.getAsJsonObject("store");
-        long sizeOfIndex = storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
-        JsonObject docsJson = statsJson.getAsJsonObject("docs");
-        long nbDocsInIndex = docsJson.getAsJsonPrimitive("count").getAsLong();
-        return sizeOfIndex / nbDocsInIndex;
-      }
-
+    public long getEstimatedSizeBytes(PipelineOptions options) throws IOException{
+      // as Elasticsearch 2.x doesn't not support any way to do parallel read inside a shard
+      // the estimated size bytes is not really used in the split into bundles.
+      // However, we implement this method anyway as the runners can use it.
+      // NB: Elasticsearch 5.x now provides the slice API.
+        JsonObject stats = getStats(false);
+        JsonObject indexStats =
+            stats.getAsJsonObject("indices").getAsJsonObject(spec.getConnectionConfiguration().getIndex()).getAsJsonObject("primaries");
+        JsonObject store = indexStats.getAsJsonObject("store");
+        return store.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
 
     @Override
     public void populateDisplayData(DisplayData.Builder builder) {
       spec.populateDisplayData(builder);
-      builder.addIfNotNull(DisplayData.item("documents offset", offset));
       builder.addIfNotNull(DisplayData.item("shard", shardPreference));
-      builder.addIfNotNull(DisplayData.item("sizeToRead", sizeToRead));
-    }
-
-    private long getIndexSize(JestResult result) {
-      JsonObject jsonResult = result.getJsonObject();
-      JsonObject statsJson =
-          jsonResult.getAsJsonObject("indices")
-              .getAsJsonObject(spec.getConnectionConfiguration().getIndex())
-              .getAsJsonObject("primaries");
-      JsonObject storeJson = statsJson.getAsJsonObject("store");
-      return storeJson.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
 
     @Override
@@ -382,17 +344,31 @@ public class ElasticsearchIO {
     public Coder<String> getDefaultOutputCoder() {
       return StringUtf8Coder.of();
     }
+
+    private JsonObject getStats(boolean shardLevel) throws IOException {
+      RestClient restClient = spec.getConnectionConfiguration().createClient();
+      HashMap<String,String> params = new HashMap<>();
+      if (shardLevel) {
+        params.put("level", "shards");
+      }
+      String endpoint = String.format("/%s/_stats",
+                                    spec.getConnectionConfiguration
+                                        ().getIndex());
+      Response response = restClient.performRequest("GET", endpoint, params, null, null);
+      restClient.close();
+      return parseResponse(response);
+
+    }
+
   }
 
   private static class BoundedElasticsearchReader extends BoundedSource.BoundedReader<String> {
 
     private final BoundedElasticsearchSource source;
 
-    private JestClient client;
+    private RestClient restClient;
     private String current;
-    private long desiredNbDocs;
-    private long nbDocsRead;
-    private Search.Builder searchBuilder;
+    private String scroll;
 
     public BoundedElasticsearchReader(BoundedElasticsearchSource source) {
       this.source = source;
@@ -400,25 +376,7 @@ public class ElasticsearchIO {
 
     @Override
     public boolean start() throws IOException {
-      /*
-      HttpClientConfig.Builder builder = new HttpClientConfig.Builder(
-          source.spec.getConnectionConfiguration().getAddress())
-          //org.apache.http.NoHttpResponseException: ... failed to respond
-          //is still present even after upgrading jest (and http-client) and even after setting
-          // maxConnectionIdleTime as recommended
-          //https://www.bountysource.com/issues/9650168-jest-and-apache-http-client-4-4-error
-          //increasing timeout does not fix the problem either, multi-thread=false either
-//          .maxConnectionIdleTime(10, TimeUnit.SECONDS)
-//          .readTimeout(20)
-          .multiThreaded(true);
-      if (source.spec.getConnectionConfiguration() != null) {
-        builder = builder.defaultCredentials(source.username, source.password);
-      }
-      JestClientFactory factory = new JestClientFactory();
-      factory.setHttpClientConfig(builder.build());
-      client = factory.getObject();
-      */
-      client = source.spec.getConnectionConfiguration().createClient();
+      restClient = source.spec.getConnectionConfiguration().createClient();
 
       String query = source.spec.getQuery();
       if (query == null) {
@@ -429,53 +387,43 @@ public class ElasticsearchIO {
             + "}";
       }
 
-      searchBuilder = new Search.Builder(query);
+      Response response;
+      String endPoint = String.format("/%s/%s/_search",
+                                 source.spec.getConnectionConfiguration().getIndex(),
+                                 source.spec.getConnectionConfiguration().getType());
+      Map<String, String> params = new HashMap<>();
+      //TODO pass keepalive
+      params.put("scroll", "1m");
+      params.put("size", "1");
       if (source.shardPreference != null) {
-        searchBuilder.setParameter("preference", source.shardPreference);
+        params.put("preference", "_shard:" + source.shardPreference);
       }
-      searchBuilder.setParameter(Parameters.SIZE, 1);
-      if (source.sizeToRead != null) {
-        //we are in the case of splitting a shard
-        nbDocsRead = 0;
-        desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
-      }
-      searchBuilder.addIndex(source.spec.getConnectionConfiguration().getIndex());
-      searchBuilder.addType(source.spec.getConnectionConfiguration().getType());
-      return advance();
-    }
-
-    private long convertBytesToNbDocs(Long size) throws IOException {
-      long averageDocSize = source.getAverageDocSize();
-      float nbDocsFloat = (float) size / averageDocSize;
-      long nbDocs = (long) Math.ceil(nbDocsFloat);
-      return nbDocs;
+      HttpEntity queryEntity = new NStringEntity(query, ContentType.APPLICATION_JSON);
+      response = restClient.performRequest("GET", endPoint, params, queryEntity);
+      JsonObject searchResult = parseResponse(response);
+      scroll = searchResult.getAsJsonPrimitive("_scroll_id").getAsString();
+      return updateCurrent(searchResult);
     }
 
     @Override
     public boolean advance() throws IOException {
-      //stop if we need to split the shard and we have reached the desiredBundleSize
-      if ((source.sizeToRead != null) && (nbDocsRead == desiredNbDocs)) {
-        return false;
-      }
-      long from;
-      if (source.sizeToRead != null) {
-        //we are in the case of splitting a shard
-        from = (desiredNbDocs * source.offset) + nbDocsRead;
-      } else {
-        from = nbDocsRead;
-      }
-      searchBuilder.setParameter(Parameters.FROM, from);
-      Search search = searchBuilder.build();
-      SearchResult searchResult = client.execute(search);
-      if (!searchResult.isSucceeded()) {
-        throw new IOException("cannot perform request on ES");
-      }
+      HttpEntity scrollEntity = new NStringEntity("{"
+                                                      + "\"scroll\" : \"1m\","
+                                                      + "\"scroll_id\" : \"" + scroll + "\""
+                                                      + "}", ContentType.APPLICATION_JSON);
+
+      Response response = restClient.performRequest("GET", "/_search/scroll", null, scrollEntity);
+      JsonObject searchResult = parseResponse(response);
+      return updateCurrent(searchResult);
+    }
+
+    private boolean updateCurrent(JsonObject searchResult) {
       //stop if no more data
-      if (searchResult.getJsonObject().getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
+      if (searchResult.getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
         return false;
       }
-      current = searchResult.getSourceAsString();
-      nbDocsRead++;
+      current = searchResult.getAsJsonObject("hits").getAsJsonArray("hits").get(0)
+          .getAsJsonObject().getAsJsonObject("_source").toString();
       return true;
     }
 
@@ -486,8 +434,15 @@ public class ElasticsearchIO {
 
     @Override
     public void close() throws IOException {
-      if (client != null) {
-        client.shutdownClient();
+      // remove the scroll
+      HttpEntity entity = new NStringEntity("{ \"scroll_id\" : [\"" + scroll + "\"] }",
+                                            ContentType.APPLICATION_JSON);
+      restClient.performRequest("DELETE", "_search/scroll",
+                                Collections.<String, String>emptyMap(),
+                                entity);
+      // close client
+      if (restClient != null) {
+        restClient.close();
       }
     }
 
@@ -503,8 +458,11 @@ public class ElasticsearchIO {
   @AutoValue
   public abstract static class Write extends PTransform<PCollection<String>, PDone> {
 
-    @Nullable abstract ConnectionConfiguration getConnectionConfiguration();
+    @Nullable
+    abstract ConnectionConfiguration getConnectionConfiguration();
+
     abstract long getBatchSize();
+
     abstract int getBatchSizeMegaBytes();
 
     abstract Builder builder();
@@ -512,8 +470,11 @@ public class ElasticsearchIO {
     @AutoValue.Builder
     abstract static class Builder {
       abstract Builder setConnectionConfiguration(ConnectionConfiguration connectionConfiguration);
+
       abstract Builder setBatchSize(long batchSize);
+
       abstract Builder setBatchSizeMegaBytes(int batchSizeMegaBytes);
+
       abstract Write build();
     }
 
@@ -544,7 +505,7 @@ public class ElasticsearchIO {
 
       private Write spec;
 
-      private JestClient client;
+      private RestClient client;
       private ArrayList<Index> batch;
       private long currentBatchSizeBytes;
 
@@ -568,9 +529,12 @@ public class ElasticsearchIO {
       @ProcessElement
       public void processElement(ProcessContext context) throws Exception {
         String json = context.element();
-        batch.add(new Index.Builder(json).index(spec.getConnectionConfiguration().getIndex())
-            .type(spec.getConnectionConfiguration().getType())
-            .build());
+
+        String create =
+
+            batch.add(new Index.Builder(json).index(spec.getConnectionConfiguration().getIndex())
+                          .type(spec.getConnectionConfiguration().getType())
+                          .build());
         currentBatchSizeBytes += json.getBytes().length;
         if (batch.size() >= spec.getBatchSize()
             || currentBatchSizeBytes >= (spec.getBatchSizeMegaBytes() * 1024 * 1024)) {
@@ -592,7 +556,7 @@ public class ElasticsearchIO {
               System.out.println(item.toString());
             }
             throw new IllegalStateException("Can't update Elasticsearch: "
-                + result.getErrorMessage());
+                                                + result.getErrorMessage());
           }
           batch.clear();
         }

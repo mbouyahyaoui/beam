@@ -32,6 +32,7 @@ import io.searchbox.indices.IndicesExists;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
+import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -78,17 +79,21 @@ public class ElasticsearchIOTest implements Serializable {
   private static final String DATA_DIRECTORY = "target/elasticsearch";
   public static final String ES_INDEX = "beam";
   public static final String ES_TYPE = "test";
-  private static final String ES_IP = "localhost";
-  private static final String ES_HTTP_PORT = "9201";
-  private static final String ES_TCP_PORT = "9301";
+  private static final String ES_IP = "127.0.0.1";
   private static final long NB_DOCS = 400L;
+
+  private static int esHttpPort;
 
   private static transient Node node;
 
   @BeforeClass
   public static void beforeClass() throws IOException {
+    ServerSocket serverSocket = new ServerSocket(0);
+    esHttpPort = serverSocket.getLocalPort();
+    serverSocket.close();
+
     FileUtils.deleteDirectory(new File(DATA_DIRECTORY));
-    LOGGER.info("Starting embedded Elasticsearch instance");
+    LOGGER.info("Starting embedded Elasticsearch instance ({})", esHttpPort);
     Settings.Builder settingsBuilder =
         Settings.settingsBuilder()
             .put("cluster.name", "beam")
@@ -98,8 +103,7 @@ public class ElasticsearchIOTest implements Serializable {
             .put("path.home", DATA_DIRECTORY)
             .put("node.name", "beam")
             .put("network.host", ES_IP)
-            .put("port", ES_TCP_PORT)
-            .put("http.port", ES_HTTP_PORT)
+            .put("http.port", esHttpPort)
             .put("index.store.stats_refresh_interval", 0);
     node = NodeBuilder.nodeBuilder().settings(settingsBuilder).build();
     LOGGER.info("Elasticsearch node created");
@@ -143,7 +147,7 @@ public class ElasticsearchIOTest implements Serializable {
 
   private JestClient createClient() {
     HttpClientConfig.Builder builder =
-        new HttpClientConfig.Builder("http://" + ES_IP + ":" + ES_HTTP_PORT).multiThreaded(true);
+        new HttpClientConfig.Builder("http://" + ES_IP + ":" + esHttpPort).multiThreaded(true);
     JestClientFactory factory = new JestClientFactory();
     factory.setHttpClientConfig(builder.build());
     return factory.getObject();
@@ -156,7 +160,7 @@ public class ElasticsearchIOTest implements Serializable {
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE));
+                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
     BoundedElasticsearchSource initialSource =
         new BoundedElasticsearchSource(read, null, null, null);
     // can't use equal assert as Elasticsearch indexes never have same size
@@ -164,7 +168,7 @@ public class ElasticsearchIOTest implements Serializable {
     long estimatedSize = initialSource.getEstimatedSizeBytes(options);
     long averageDocSize = initialSource.getAverageDocSize();
     LOGGER.info("Estimated size: {}", estimatedSize);
-    assertTrue("Wrong estimated size", estimatedSize > 45000);
+    assertTrue("Wrong estimated size", estimatedSize > 44000);
     LOGGER.info("Average doc size: {}", averageDocSize);
     assertTrue("Wrong average doc size", averageDocSize > 100);
   }
@@ -179,7 +183,7 @@ public class ElasticsearchIOTest implements Serializable {
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE)));
+                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE)));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS);
     output.apply(ParDo.of(new DoFn<String, String>() {
       @ProcessElement
@@ -212,7 +216,7 @@ public class ElasticsearchIOTest implements Serializable {
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE))
+                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE))
         .withQuery(query));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS / 10);
     pipeline.run();
@@ -234,7 +238,7 @@ public class ElasticsearchIOTest implements Serializable {
     pipeline.apply(Create.of(data)).apply(
         ElasticsearchIO.write().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE)));
+                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE)));
     pipeline.run();
 
     // upgrade
@@ -264,7 +268,7 @@ public class ElasticsearchIOTest implements Serializable {
     PDone collection = pipeline.apply(Create.of(data)).apply(
         ElasticsearchIO.write()
             .withConnectionConfiguration(ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE))
+                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE))
             .withBatchSize(NB_DOCS / 2)
             .withBatchSizeMegaBytes(1));
 
@@ -288,7 +292,7 @@ public class ElasticsearchIOTest implements Serializable {
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE));
+                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
     BoundedElasticsearchSource initialSource =
         new BoundedElasticsearchSource(read, null, null, null);
     int desiredBundleSizeBytes = 1073741824;
@@ -315,7 +319,7 @@ public class ElasticsearchIOTest implements Serializable {
 
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withConnectionConfiguration(ElasticsearchIO.ConnectionConfiguration
-            .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE));
+            .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
 
     BoundedElasticsearchSource initialSource =
         new BoundedElasticsearchSource(read, null, null, null);
@@ -327,6 +331,7 @@ public class ElasticsearchIOTest implements Serializable {
 
     // due to the same reason as estimated size, as Elasticsearch never creates index with the
     // same size, the number of splits can vary a little
+    LOGGER.info("Number of splits: {}", splits.size());
     assertTrue("Wrong number of splits", (splits.size() >= 13 && splits.size() <= 15));
 
     int nonEmptySplits = 0;
@@ -335,6 +340,7 @@ public class ElasticsearchIOTest implements Serializable {
         nonEmptySplits += 1;
       }
     }
+    LOGGER.info("Number of empty splits: {}", nonEmptySplits);
     assertTrue("Wrong number of empty splits", (nonEmptySplits >= 13 && nonEmptySplits <= 15));
   }
 
