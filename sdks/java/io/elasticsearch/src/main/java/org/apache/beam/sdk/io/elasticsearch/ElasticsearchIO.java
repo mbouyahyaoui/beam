@@ -411,9 +411,18 @@ public class ElasticsearchIO {
         requestBody.append(query);
       }
 
-      NStringEntity entity = new NStringEntity(requestBody.toString(), ContentType.APPLICATION_JSON);
-      Response response =
-          client.performRequest(scheme, endPoint, params, entity);
+      Response response;
+      if (requestBody.length() > 0) {
+        NStringEntity entity = new NStringEntity(String.format("{%d}", requestBody.toString()),
+                                                 ContentType
+                                                     .APPLICATION_JSON);
+        response =
+            client.performRequest(scheme, endPoint, params, entity);
+      }
+      else{
+        response = client.performRequest(scheme, endPoint, params);
+      }
+
       InputStream content = response.getEntity().getContent();
       InputStreamReader inputStreamReader = new InputStreamReader(content, "UTF-8");
       JsonObject jsonObject = new Gson().fromJson(inputStreamReader, JsonObject.class);
@@ -441,11 +450,9 @@ public class ElasticsearchIO {
       client = source.createClient();
       String query = source.query;
       if (query == null) {
-        query = "{\n"
-            + "  \"query\": {\n"
+        query = "  \"query\": {\n"
             + "    \"match_all\": {}\n"
-            + "  }\n"
-            + "}";
+            + "  }\n";
       }
       requester = new Requester(client);
       requester.setQuery(query);
