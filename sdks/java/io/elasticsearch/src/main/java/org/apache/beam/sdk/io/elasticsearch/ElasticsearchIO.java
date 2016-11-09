@@ -21,6 +21,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.reflect.TypeToken;
 import io.searchbox.client.JestClient;
 import io.searchbox.client.JestClientFactory;
 import io.searchbox.client.config.HttpClientConfig;
@@ -30,7 +31,6 @@ import io.searchbox.core.Index;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
-import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -56,6 +56,7 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Type;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.*;
@@ -180,14 +181,14 @@ public class ElasticsearchIO {
     @Nullable
     private final String shardPreference;
     @Nullable
-    private final Long sizeToRead;
+    private final Integer nbSlices;
     @Nullable
-    private final Integer offset;
+    private final Integer sliceId;
 
     private BoundedElasticsearchSource(String address, String username, String password,
                                        String query, String index, String type,
-                                       String shardPreference, Long sizeToRead,
-                                       Integer offset) {
+                                       String shardPreference, Integer nbSlices,
+                                       Integer sliceId) {
       this.address = address;
       this.username = username;
       this.password = password;
@@ -195,53 +196,53 @@ public class ElasticsearchIO {
       this.index = index;
       this.type = type;
       this.shardPreference = shardPreference;
-      this.sizeToRead = sizeToRead;
-      this.offset = offset;
+      this.nbSlices = nbSlices;
+      this.sliceId = sliceId;
     }
 
     public BoundedElasticsearchSource withAddress(String address) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withUsername(String username) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withPassword(String password) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withQuery(String query) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withIndex(String index) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withType(String type) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withShardPreference(String shardPreference) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
-    public BoundedElasticsearchSource withSizeToRead(Long sizeToRead) {
+    public BoundedElasticsearchSource withNbSlices(Integer nbSlices) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
-    public BoundedElasticsearchSource withOffset(Integer offset) {
+    public BoundedElasticsearchSource withSliceId(Integer sliceId) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, sizeToRead, offset);
+                                            shardPreference, nbSlices, sliceId);
     }
 
     private RestClient createClient() throws MalformedURLException {
@@ -286,6 +287,10 @@ public class ElasticsearchIO {
           String shardPreference = "_shards:" + shardId;
           float nbBundlesFloat = (float) shardSize / desiredBundleSizeBytes;
           int nbBundles = (int) Math.ceil(nbBundlesFloat);
+          //ES slice api imposes that number of slices is <= 1024 even if it can be overloaded
+          // ES side by conf, we don't want to impose a configuration change to the user
+          if (nbBundles > 1024)
+            nbBundles = 1024;
           if (nbBundles <= 1) {
             // read all docs in the shard
             sources.add(this.withShardPreference(shardPreference));
@@ -294,8 +299,8 @@ public class ElasticsearchIO {
             // nbBundles sources
             for (int i = 0; i < nbBundles; i++) {
               sources.add(
-                  this.withShardPreference(shardPreference).withSizeToRead
-                      (desiredBundleSizeBytes).withOffset(i));
+                  this.withShardPreference(shardPreference).withNbSlices
+                      (nbBundles).withSliceId(i));
             }
           }
         }
@@ -351,10 +356,10 @@ public class ElasticsearchIO {
       builder.add(DisplayData.item("address", address));
       builder.add(DisplayData.item("index", index));
       builder.add(DisplayData.item("type", type));
-      builder.addIfNotNull(DisplayData.item("documents offset", offset));
+      builder.addIfNotNull(DisplayData.item("sliceId", sliceId));
       builder.addIfNotNull(DisplayData.item("query", query));
       builder.addIfNotNull(DisplayData.item("shard", shardPreference));
-      builder.addIfNotNull(DisplayData.item("sizeToRead", sizeToRead));
+      builder.addIfNotNull(DisplayData.item("nbSlices", nbSlices));
     }
 
     @Override
@@ -428,9 +433,8 @@ public class ElasticsearchIO {
 
     private RestClient client;
     private String current;
-    private long desiredNbDocs;
-    private long nbDocsRead;
     private Requester requester;
+    private List<String> slice;
 
     public BoundedElasticsearchReader(BoundedElasticsearchSource source) {
       this.source = source;
@@ -452,47 +456,31 @@ public class ElasticsearchIO {
       if (source.shardPreference != null) {
         requester.setParameter("preference", source.shardPreference);
       }
-      requester.setParameter("size", String.valueOf(1));
-      if (source.sizeToRead != null) {
-        //we are in the case of splitting a shard
-        nbDocsRead = 0;
-        desiredNbDocs = convertBytesToNbDocs(source.sizeToRead);
-      }
+      //TODO when merge with JB, use scroll keepalive given by user
+      requester.setParameter("scroll", "1m");
       requester.setEndPoint(String.format("/%s/%s/%s", source.index, source.type, "_search"));
       requester.setScheme("GET");
+      JsonArray hits =
+          requester.performRequest().getAsJsonObject("hits").getAsJsonArray("hits");
+      //all docs of a slice will be in memory for the advance() to be able to step one doc by one
+      // doc (no out of memory because slice size is <= desiredBundleSize)
+      //Scroll is mandatory to read huge volume of data and from/size API cannot be used in
+      // conjunction with scroll.
+      slice = new ArrayList<>();
+      for (int i = 0; i < hits.size(); i++){
+        slice.add(hits.get(i).getAsJsonObject().toString());
+      }
       return advance();
     }
 
-    private long convertBytesToNbDocs(Long size) throws IOException {
-      long averageDocSize = source.getAverageDocSize();
-      float nbDocsFloat = (float) size / averageDocSize;
-      long nbDocs = (long) Math.ceil(nbDocsFloat);
-      return nbDocs;
-    }
-
     @Override
-    public boolean advance() throws IOException {
-      //stop if we need to split the shard and we have reached the desiredBundleSize
-      if ((source.sizeToRead != null) && (nbDocsRead == desiredNbDocs)) {
-        return false;
-      }
-      long from;
-      if (source.sizeToRead != null) {
-        //we are in the case of splitting a shard
-        from = (desiredNbDocs * source.offset) + nbDocsRead;
+    public boolean advance() throws IOException{
+      if (slice != null && slice.size() > 0) {
+        current = slice.remove(0);
+        return true;
       } else {
-        from = nbDocsRead;
-      }
-      requester.setParameter("from", String.valueOf(from));
-      JsonObject result = requester.performRequest();
-      //stop if no more data
-      if (result.getAsJsonObject("hits").getAsJsonArray("hits").size() == 0) {
         return false;
       }
-      current = result.getAsJsonObject("hits").getAsJsonArray("hits").get(0)
-          .getAsJsonObject().getAsJsonObject("_source").toString();
-      nbDocsRead++;
-      return true;
     }
 
     @Override
