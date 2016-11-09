@@ -111,7 +111,7 @@ public class ElasticsearchIO {
   }
 
   public static Read read() {
-    return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null, null,
+    return new Read(new BoundedElasticsearchSource(null, null, null, null, null, null,
                                                    null, null));
   }
 
@@ -179,15 +179,13 @@ public class ElasticsearchIO {
     private final String index;
     private final String type;
     @Nullable
-    private final String shardPreference;
-    @Nullable
     private final Integer nbSlices;
     @Nullable
     private final Integer sliceId;
 
     private BoundedElasticsearchSource(String address, String username, String password,
                                        String query, String index, String type,
-                                       String shardPreference, Integer nbSlices,
+                                       Integer nbSlices,
                                        Integer sliceId) {
       this.address = address;
       this.username = username;
@@ -195,54 +193,48 @@ public class ElasticsearchIO {
       this.query = query;
       this.index = index;
       this.type = type;
-      this.shardPreference = shardPreference;
       this.nbSlices = nbSlices;
       this.sliceId = sliceId;
     }
 
     public BoundedElasticsearchSource withAddress(String address) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
+                                            nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withUsername(String username) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
+                                            nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withPassword(String password) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
+                                            nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withQuery(String query) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
+                                            nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withIndex(String index) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
+                                            nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withType(String type) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
-    }
-
-    public BoundedElasticsearchSource withShardPreference(String shardPreference) {
-      return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
+                                            nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withNbSlices(Integer nbSlices) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
+                                            nbSlices, sliceId);
     }
 
     public BoundedElasticsearchSource withSliceId(Integer sliceId) {
       return new BoundedElasticsearchSource(address, username, password, query, index, type,
-                                            shardPreference, nbSlices, sliceId);
+                                            nbSlices, sliceId);
     }
 
     private RestClient createClient() throws MalformedURLException {
@@ -273,39 +265,24 @@ public class ElasticsearchIO {
         throws Exception {
       List<BoundedElasticsearchSource> sources = new ArrayList<>();
 
-      try {
-        JsonObject jsonObject = getStats(true);
-        JsonObject shardsJson =
-            jsonObject.getAsJsonObject("indices").getAsJsonObject(index).getAsJsonObject("shards");
-        Set<Map.Entry<String, JsonElement>> entries = shardsJson.entrySet();
-        for (Map.Entry<String, JsonElement> shardJson : entries) {
-          String shardId = shardJson.getKey();
-          JsonArray value = (JsonArray) shardJson.getValue();
-          long shardSize =
-              value.get(0).getAsJsonObject().getAsJsonObject("store").getAsJsonPrimitive(
-                  "size_in_bytes").getAsLong();
-          String shardPreference = "_shards:" + shardId;
-          float nbBundlesFloat = (float) shardSize / desiredBundleSizeBytes;
-          int nbBundles = (int) Math.ceil(nbBundlesFloat);
-          //ES slice api imposes that number of slices is <= 1024 even if it can be overloaded
-          // ES side by conf, we don't want to impose a configuration change to the user
-          if (nbBundles > 1024)
-            nbBundles = 1024;
-          if (nbBundles <= 1) {
-            // read all docs in the shard
-            sources.add(this.withShardPreference(shardPreference));
-          } else {
-            // split the shard into nbBundles chunks of desiredBundleSizeBytes by creating
-            // nbBundles sources
-            for (int i = 0; i < nbBundles; i++) {
-              sources.add(
-                  this.withShardPreference(shardPreference).withNbSlices
-                      (nbBundles).withSliceId(i));
-            }
-          }
-        }
-      } catch (IOException ex) {
+      long indexSize = getEstimatedSizeBytes(options);
+      float nbBundlesFloat = (float) indexSize / desiredBundleSizeBytes;
+      int nbBundles = (int) Math.ceil(nbBundlesFloat);
+      //ES slice api imposes that number of slices is <= 1024 even if it can be overloaded
+      // ES side by conf, we don't want to impose a configuration change to the user
+      if (nbBundles > 1024)
+        nbBundles = 1024;
+      if (nbBundles <= 1) {
+        // read all docs in the shard
         sources.add(this);
+      } else {
+        // split the index into nbBundles chunks of desiredBundleSizeBytes by creating
+        // nbBundles sources
+        for (int i = 0; i < nbBundles; i++) {
+          sources.add(
+              this.withNbSlices
+                  (nbBundles).withSliceId(i));
+        }
       }
       return sources;
     }
@@ -358,7 +335,6 @@ public class ElasticsearchIO {
       builder.add(DisplayData.item("type", type));
       builder.addIfNotNull(DisplayData.item("sliceId", sliceId));
       builder.addIfNotNull(DisplayData.item("query", query));
-      builder.addIfNotNull(DisplayData.item("shard", shardPreference));
       builder.addIfNotNull(DisplayData.item("nbSlices", nbSlices));
     }
 
@@ -387,7 +363,8 @@ public class ElasticsearchIO {
 
   private static class Requester {
 
-    private HttpEntity entity;
+    private String query;
+    private String sliceParams;
     private Map<String, String> params;
     private String endPoint;
     private String scheme;
@@ -406,8 +383,15 @@ public class ElasticsearchIO {
     }
 
     public void setQuery(String query) {
-      entity = new NStringEntity(query, ContentType.APPLICATION_JSON);
+      this.query = query;
     }
+
+    public void setSlice(int sliceId, int maxSlice) {
+      sliceParams = String.format("\"slice\": {\n"
+                                                     + "    \"id\": %d,\n"
+                                                     + "    \"max\": %d\n"
+                                                     + "  }", sliceId, maxSlice);
+      }
 
     public Requester(RestClient client) {
       this.client = client;
@@ -415,7 +399,19 @@ public class ElasticsearchIO {
     }
 
     public JsonObject performRequest() throws IOException {
-      //TODO test behaviour when entity is null, if bad, call performRequest that takes no entity
+
+      StringBuilder requestBody = new StringBuilder();
+      if (sliceParams != null){
+        requestBody.append(sliceParams);
+      }
+      if (requestBody.length() > 0){
+        requestBody.append(",");
+      }
+      if (query != null){
+        requestBody.append(query);
+      }
+
+      NStringEntity entity = new NStringEntity(requestBody.toString(), ContentType.APPLICATION_JSON);
       Response response =
           client.performRequest(scheme, endPoint, params, entity);
       InputStream content = response.getEntity().getContent();
@@ -453,13 +449,11 @@ public class ElasticsearchIO {
       }
       requester = new Requester(client);
       requester.setQuery(query);
-      if (source.shardPreference != null) {
-        requester.setParameter("preference", source.shardPreference);
-      }
       //TODO when merge with JB, use scroll keepalive given by user
       requester.setParameter("scroll", "1m");
       requester.setEndPoint(String.format("/%s/%s/%s", source.index, source.type, "_search"));
       requester.setScheme("GET");
+      requester.setSlice(source.sliceId, source.nbSlices);
       JsonArray hits =
           requester.performRequest().getAsJsonObject("hits").getAsJsonArray("hits");
       //all docs of a slice will be in memory for the advance() to be able to step one doc by one
@@ -467,14 +461,14 @@ public class ElasticsearchIO {
       //Scroll is mandatory to read huge volume of data and from/size API cannot be used in
       // conjunction with scroll.
       slice = new ArrayList<>();
-      for (int i = 0; i < hits.size(); i++){
-        slice.add(hits.get(i).getAsJsonObject().toString());
+      for (int i = 0; i < hits.size(); i++) {
+        slice.add(hits.get(i).getAsJsonObject().getAsJsonObject("_source").toString());
       }
       return advance();
     }
 
     @Override
-    public boolean advance() throws IOException{
+    public boolean advance() throws IOException {
       if (slice != null && slice.size() > 0) {
         current = slice.remove(0);
         return true;
