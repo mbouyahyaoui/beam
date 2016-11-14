@@ -50,7 +50,7 @@ import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.unit.TimeValue;
-import org.elasticsearch.index.indexing.IndexingStats;
+import org.elasticsearch.transport.client.PreBuiltTransportClient;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -120,12 +120,12 @@ public class ElasticsearchIOIT {
 
   @Test
   public void testESBulkInsert() throws Exception {
-    Settings settings = Settings.settingsBuilder()
+    Settings settings = Settings.builder()
         .put("cluster.name", "beam")
         .build();
     InetSocketTransportAddress address =
         new InetSocketTransportAddress(InetAddress.getByName("localhost"), 9300);
-    Client client = TransportClient.builder().settings(settings).build()
+    Client client = new PreBuiltTransportClient(settings)
         .addTransportAddress(address);
 
     BulkProcessor bulkProcessor = BulkProcessor.builder(client, new BulkProcessor.Listener() {

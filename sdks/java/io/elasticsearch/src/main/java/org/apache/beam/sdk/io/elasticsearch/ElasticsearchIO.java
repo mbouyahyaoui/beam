@@ -274,7 +274,7 @@ public class ElasticsearchIO {
         nbBundles = 1024;
       if (nbBundles <= 1) {
         // read all docs in the shard
-        sources.add(this);
+        sources.add(this.withSliceId(0).withNbSlices(nbBundles));
       } else {
         // split the index into nbBundles chunks of desiredBundleSizeBytes by creating
         // nbBundles sources
@@ -388,10 +388,10 @@ public class ElasticsearchIO {
 
     public void setSlice(int sliceId, int maxSlice) {
       sliceParams = String.format("\"slice\": {\n"
-                                                     + "    \"id\": %d,\n"
-                                                     + "    \"max\": %d\n"
-                                                     + "  }", sliceId, maxSlice);
-      }
+                                      + "    \"id\": %d,\n"
+                                      + "    \"max\": %d\n"
+                                      + "  }", sliceId, maxSlice);
+    }
 
     public Requester(RestClient client) {
       this.client = client;
@@ -401,25 +401,23 @@ public class ElasticsearchIO {
     public JsonObject performRequest() throws IOException {
 
       StringBuilder requestBody = new StringBuilder();
-      if (sliceParams != null){
+      if (sliceParams != null) {
         requestBody.append(sliceParams);
       }
-      if (requestBody.length() > 0){
-        requestBody.append(",");
-      }
-      if (query != null){
+      if (query != null) {
+        if (requestBody.length() > 0) {
+          requestBody.append(",");
+        }
         requestBody.append(query);
       }
-
       Response response;
       if (requestBody.length() > 0) {
-        NStringEntity entity = new NStringEntity(String.format("{%d}", requestBody.toString()),
+        NStringEntity entity = new NStringEntity(String.format("{%s}", requestBody.toString()),
                                                  ContentType
                                                      .APPLICATION_JSON);
         response =
             client.performRequest(scheme, endPoint, params, entity);
-      }
-      else{
+      } else {
         response = client.performRequest(scheme, endPoint, params);
       }
 

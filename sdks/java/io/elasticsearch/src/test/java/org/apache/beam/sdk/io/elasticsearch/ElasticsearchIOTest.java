@@ -38,16 +38,22 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
+import org.apache.http.HttpHost;
+import org.elasticsearch.action.admin.indices.settings.put.UpdateSettingsRequest;
 import org.elasticsearch.action.admin.indices.upgrade.post.UpgradeRequest;
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
 import org.elasticsearch.action.bulk.BulkResponse;
+import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.node.Node;
-import org.elasticsearch.node.NodeBuilder;
+import org.elasticsearch.node.NodeValidationException;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -60,6 +66,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
@@ -83,12 +90,15 @@ public class ElasticsearchIOTest implements Serializable {
 
   private static transient Node node;
 
+//TODO replace by ESTestCase
   @BeforeClass
-  public static void beforeClass() throws IOException {
+  public static void beforeClass() throws IOException, NodeValidationException {
+
     FileUtils.deleteDirectory(new File(DATA_DIRECTORY));
     LOGGER.info("Starting embedded Elasticsearch instance");
+
     Settings.Builder settingsBuilder =
-        Settings.settingsBuilder()
+        Settings.builder()
             .put("cluster.name", "beam")
             .put("http.enabled", "true")
             .put("node.data", "true")
@@ -96,10 +106,20 @@ public class ElasticsearchIOTest implements Serializable {
             .put("path.home", DATA_DIRECTORY)
             .put("node.name", "beam")
             .put("network.host", ES_IP)
-            .put("port", ES_TCP_PORT)
-            .put("http.port", ES_HTTP_PORT)
-            .put("index.store.stats_refresh_interval", 0);
-    node = NodeBuilder.nodeBuilder().settings(settingsBuilder).build();
+//            .put("port", ES_TCP_PORT)
+            .put("http.port", ES_HTTP_PORT);
+    //            .put("index.store.stats_refresh_interval", 0);
+    node = new org.elasticsearch.node.Node(settingsBuilder.build());
+    /*RestClientBuilder restClientBuilder = RestClient.builder(
+        new HttpHost(ES_IP, Integer.parseInt(ES_HTTP_PORT), "http"));
+    RestClient restClient = restClientBuilder.build();
+    String endPoint = String.format("/%s/%s", ES_INDEX, "_settings");
+    restClient.performRequest("http", endPoint, null);
+*/
+    String map = new
+        HashMap<String, String>().put("index.store.stats_refresh_interval", "0");
+    Settings settings = Settings.builder().put(map).build();
+    node.client().admin().indices().updateSettings(new UpdateSettingsRequest(settings, ES_INDEX));
     LOGGER.info("Elasticsearch node created");
     if (node != null) {
       node.start();
@@ -123,7 +143,8 @@ public class ElasticsearchIOTest implements Serializable {
 
   private void sampleIndex(long nbDocs) throws Exception {
     Client client = node.client();
-    final BulkRequestBuilder bulkRequestBuilder = client.prepareBulk().setRefresh(true);
+    final BulkRequestBuilder bulkRequestBuilder = client.prepareBulk().setRefreshPolicy(
+        WriteRequest.RefreshPolicy.IMMEDIATE);
 
     String[] scientists =
         { "Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday", "Newton", "Bohr",
@@ -189,16 +210,14 @@ public class ElasticsearchIOTest implements Serializable {
   public void testReadWithQuery() throws Exception {
     sampleIndex(NB_DOCS);
 
-    String query = "{\n"
-        + "  \"query\": {\n"
+    String query = "\"query\": {\n"
         + "  \"match\" : {\n"
         + "    \"scientist\" : {\n"
         + "      \"query\" : \"Einstein\",\n"
         + "      \"type\" : \"boolean\"\n"
         + "    }\n"
         + "  }\n"
-        + "  }\n"
-        + "}";
+        + "  }\n";
 
     Pipeline pipeline = TestPipeline.create();
 
@@ -317,7 +336,7 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   @AfterClass
-  public static void afterClass() {
+  public static void afterClass() throws IOException {
     if (node != null) {
       node.close();
     }
