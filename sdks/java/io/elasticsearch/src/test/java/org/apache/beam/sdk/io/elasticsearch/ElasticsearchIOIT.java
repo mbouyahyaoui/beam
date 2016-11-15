@@ -130,10 +130,9 @@ public class ElasticsearchIOIT {
             ElasticsearchIO.ConnectionConfiguration
               .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE));
     ElasticsearchIO.BoundedElasticsearchSource initialSource =
-        new ElasticsearchIO.BoundedElasticsearchSource(read, null, null, null);
+        new ElasticsearchIO.BoundedElasticsearchSource(read, null);
     assertEquals("Wrong estimated size", 1928649, initialSource.getEstimatedSizeBytes
         (options));
-    assertEquals("Wrong average doc size", 27, initialSource.getAverageDocSize());
   }
 
   @Test

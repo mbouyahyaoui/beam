@@ -312,9 +312,9 @@ public class ElasticsearchIO {
       // the estimated size bytes is not really used in the split into bundles.
       // However, we implement this method anyway as the runners can use it.
       // NB: Elasticsearch 5.x now provides the slice API.
-        JsonObject stats = getStats(false);
+        JsonObject statsJson = getStats(false);
         JsonObject indexStats =
-            stats.getAsJsonObject("indices").getAsJsonObject(spec.getConnectionConfiguration().getIndex()).getAsJsonObject("primaries");
+            statsJson.getAsJsonObject("indices").getAsJsonObject(spec.getConnectionConfiguration().getIndex()).getAsJsonObject("primaries");
         JsonObject store = indexStats.getAsJsonObject("store");
         return store.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
@@ -506,7 +506,8 @@ public class ElasticsearchIO {
       private Write spec;
 
       private RestClient client;
-      private ArrayList<Index> batch;
+      //TODO recode batch
+//      private ArrayList<Index> batch;
       private long currentBatchSizeBytes;
 
       public WriterFn(Write spec) {
@@ -522,12 +523,17 @@ public class ElasticsearchIO {
 
       @StartBundle
       public void startBundle(Context context) throws Exception {
+        //TODO recode batch
+/*
         batch = new ArrayList<>();
         currentBatchSizeBytes = 0;
+*/
       }
 
       @ProcessElement
       public void processElement(ProcessContext context) throws Exception {
+        //TODO recode batch
+/*
         String json = context.element();
 
         String create =
@@ -540,10 +546,13 @@ public class ElasticsearchIO {
             || currentBatchSizeBytes >= (spec.getBatchSizeMegaBytes() * 1024 * 1024)) {
           finishBundle(context);
         }
+*/
       }
 
       @FinishBundle
       public void finishBundle(Context context) throws Exception {
+        //TODO recode batch
+/*
         if (batch.size() > 0) {
           Bulk bulk = new Bulk.Builder()
               .defaultIndex(spec.getConnectionConfiguration().getIndex())
@@ -560,12 +569,13 @@ public class ElasticsearchIO {
           }
           batch.clear();
         }
+*/
       }
 
       @Teardown
       public void closeClient() throws Exception {
         if (client != null) {
-          client.shutdownClient();
+          client.close();
         }
       }
 

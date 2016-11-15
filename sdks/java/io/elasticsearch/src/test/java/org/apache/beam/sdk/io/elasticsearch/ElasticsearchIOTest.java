@@ -22,18 +22,13 @@ import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import io.searchbox.client.JestClient;
-import io.searchbox.client.JestClientFactory;
-import io.searchbox.client.JestResult;
-import io.searchbox.client.config.HttpClientConfig;
-import io.searchbox.indices.DeleteIndex;
-import io.searchbox.indices.IndicesExists;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.ServerSocket;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 import org.apache.beam.sdk.Pipeline;
@@ -51,11 +46,20 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
+import org.apache.http.HttpHost;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
 import org.elasticsearch.action.admin.indices.upgrade.post.UpgradeRequest;
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.client.Response;
+import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
@@ -114,17 +118,12 @@ public class ElasticsearchIOTest implements Serializable {
 
   @Before
   public void before() throws IOException {
-    JestClient client = createClient();
-    IndicesExists indicesExists = new IndicesExists.Builder(ES_INDEX).build();
-    JestResult indicesExistsResult = client.execute(indicesExists);
-    if (indicesExistsResult.isSucceeded()) {
-      // index exists
-      DeleteIndex deleteIndex = new DeleteIndex.Builder(ES_INDEX).build();
-      JestResult deleteIndexResult = client.execute(deleteIndex);
-      if (!deleteIndexResult.isSucceeded()) {
-        throw new IOException("Cannot delete index " + ES_INDEX);
-      }
-    }
+    RestClientBuilder restClientBuilder = RestClient.builder(
+        new HttpHost(ES_IP, 9200, "http"));
+    RestClient restClient = restClientBuilder.build();
+    Response response = restClient.performRequest("DELETE", "/" + ES_INDEX, null);
+    restClient.close();
+
   }
 
   private void sampleIndex(long nbDocs) throws Exception {
@@ -145,14 +144,6 @@ public class ElasticsearchIOTest implements Serializable {
     }
   }
 
-  private JestClient createClient() {
-    HttpClientConfig.Builder builder =
-        new HttpClientConfig.Builder("http://" + ES_IP + ":" + esHttpPort).multiThreaded(true);
-    JestClientFactory factory = new JestClientFactory();
-    factory.setHttpClientConfig(builder.build());
-    return factory.getObject();
-  }
-
   @Test
   public void testSizes() throws Exception {
     sampleIndex(NB_DOCS);
@@ -162,15 +153,12 @@ public class ElasticsearchIOTest implements Serializable {
             ElasticsearchIO.ConnectionConfiguration
                 .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
     BoundedElasticsearchSource initialSource =
-        new BoundedElasticsearchSource(read, null, null, null);
+        new BoundedElasticsearchSource(read, null);
     // can't use equal assert as Elasticsearch indexes never have same size
     // (due to internal Elasticsearch implementation)
     long estimatedSize = initialSource.getEstimatedSizeBytes(options);
-    long averageDocSize = initialSource.getAverageDocSize();
     LOGGER.info("Estimated size: {}", estimatedSize);
     assertTrue("Wrong estimated size", estimatedSize > 44000);
-    LOGGER.info("Average doc size: {}", averageDocSize);
-    assertTrue("Wrong average doc size", averageDocSize > 100);
   }
 
   @Test
@@ -294,7 +282,7 @@ public class ElasticsearchIOTest implements Serializable {
             ElasticsearchIO.ConnectionConfiguration
                 .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
     BoundedElasticsearchSource initialSource =
-        new BoundedElasticsearchSource(read, null, null, null);
+        new BoundedElasticsearchSource(read, null);
     int desiredBundleSizeBytes = 1073741824;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
@@ -322,7 +310,7 @@ public class ElasticsearchIOTest implements Serializable {
             .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
 
     BoundedElasticsearchSource initialSource =
-        new BoundedElasticsearchSource(read, null, null, null);
+        new BoundedElasticsearchSource(read, null);
     long desiredBundleSizeBytes = 4000;
 
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
