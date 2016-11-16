@@ -46,20 +46,21 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
+import org.apache.http.Header;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
+import org.apache.http.message.BasicHeader;
+import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsRequest;
+import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsResponse;
 import org.elasticsearch.action.admin.indices.upgrade.post.UpgradeRequest;
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.client.Client;
-import org.elasticsearch.client.Response;
-import org.elasticsearch.client.RestClient;
-import org.elasticsearch.client.RestClientBuilder;
+import org.elasticsearch.client.*;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
@@ -117,13 +118,19 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   @Before
-  public void before() throws IOException {
+  public void before() throws Exception {
+/*
     RestClientBuilder restClientBuilder = RestClient.builder(
         new HttpHost(ES_IP, 9200, "http"));
     RestClient restClient = restClientBuilder.build();
-    Response response = restClient.performRequest("DELETE", "/" + ES_INDEX, null);
+    Response response = restClient.performRequest("DELETE", "/" + ES_INDEX, new BasicHeader("",""));
     restClient.close();
-
+*/
+    IndicesAdminClient indices = node.client().admin().indices();
+    IndicesExistsResponse indicesExistsResponse =
+        indices.exists(new IndicesExistsRequest(ES_INDEX)).get();
+    if (indicesExistsResponse.isExists())
+      indices.prepareDelete(ES_INDEX).get();
   }
 
   private void sampleIndex(long nbDocs) throws Exception {
@@ -205,7 +212,7 @@ public class ElasticsearchIOTest implements Serializable {
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
                 .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE))
-        .withQuery(query));
+            .withQuery(query));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS / 10);
     pipeline.run();
   }
@@ -256,7 +263,8 @@ public class ElasticsearchIOTest implements Serializable {
     PDone collection = pipeline.apply(Create.of(data)).apply(
         ElasticsearchIO.write()
             .withConnectionConfiguration(ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE))
+                                             .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX,
+                                                     ES_TYPE))
             .withBatchSize(NB_DOCS / 2)
             .withBatchSizeMegaBytes(1));
 
@@ -307,7 +315,9 @@ public class ElasticsearchIOTest implements Serializable {
 
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withConnectionConfiguration(ElasticsearchIO.ConnectionConfiguration
-            .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
+                                                               .create("http://" + ES_IP + ":"
+                                                                           + esHttpPort, ES_INDEX,
+                                                                       ES_TYPE));
 
     BoundedElasticsearchSource initialSource =
         new BoundedElasticsearchSource(read, null);
