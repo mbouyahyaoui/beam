@@ -60,6 +60,7 @@ import org.apache.http.client.CredentialsProvider;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
+import org.apache.http.message.BasicHeader;
 import org.apache.http.nio.entity.NStringEntity;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
@@ -354,7 +355,7 @@ public class ElasticsearchIO {
       String endpoint = String.format("/%s/_stats",
                                     spec.getConnectionConfiguration
                                         ().getIndex());
-      Response response = restClient.performRequest("GET", endpoint, params, null, null);
+      Response response = restClient.performRequest("GET", endpoint, params, new BasicHeader("", ""));
       restClient.close();
       return parseResponse(response);
 
@@ -399,7 +400,7 @@ public class ElasticsearchIO {
         params.put("preference", "_shard:" + source.shardPreference);
       }
       HttpEntity queryEntity = new NStringEntity(query, ContentType.APPLICATION_JSON);
-      response = restClient.performRequest("GET", endPoint, params, queryEntity);
+      response = restClient.performRequest("GET", endPoint, params, queryEntity, new BasicHeader("",""));
       JsonObject searchResult = parseResponse(response);
       scroll = searchResult.getAsJsonPrimitive("_scroll_id").getAsString();
       return updateCurrent(searchResult);
@@ -412,7 +413,7 @@ public class ElasticsearchIO {
                                                       + "\"scroll_id\" : \"" + scroll + "\""
                                                       + "}", ContentType.APPLICATION_JSON);
 
-      Response response = restClient.performRequest("GET", "/_search/scroll", null, scrollEntity);
+      Response response = restClient.performRequest("GET", "/_search/scroll", null, scrollEntity, new BasicHeader("",""));
       JsonObject searchResult = parseResponse(response);
       return updateCurrent(searchResult);
     }
@@ -439,7 +440,7 @@ public class ElasticsearchIO {
                                             ContentType.APPLICATION_JSON);
       restClient.performRequest("DELETE", "_search/scroll",
                                 Collections.<String, String>emptyMap(),
-                                entity);
+                                entity, new BasicHeader("",""));
       // close client
       if (restClient != null) {
         restClient.close();
@@ -550,7 +551,7 @@ public class ElasticsearchIO {
                                           spec.getConnectionConfiguration().getType());
           HttpEntity requestBody = new NStringEntity(bulkRequest.toString(), ContentType
               .APPLICATION_JSON);
-          response = restClient.performRequest("POST", endPoint, null, requestBody, null);
+          response = restClient.performRequest("POST", endPoint, null, requestBody, new BasicHeader("",""));
           JsonObject searchResult = parseResponse(response);
           boolean errors = searchResult.getAsJsonPrimitive("errors").getAsBoolean();
           if (errors != false) {
