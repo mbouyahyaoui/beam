@@ -40,6 +40,7 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
+import com.google.gson.JsonPrimitive;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
@@ -59,7 +60,6 @@ import org.apache.http.client.CredentialsProvider;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
-import org.apache.http.message.BasicHeader;
 import org.apache.http.nio.entity.NStringEntity;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
@@ -505,9 +505,8 @@ public class ElasticsearchIO {
 
       private Write spec;
 
-      private RestClient client;
-      //TODO recode batch
-//      private ArrayList<Index> batch;
+      private RestClient restClient;
+      private ArrayList<String> batch;
       private long currentBatchSizeBytes;
 
       public WriterFn(Write spec) {
@@ -516,66 +515,55 @@ public class ElasticsearchIO {
 
       @Setup
       public void createClient() throws Exception {
-        if (client == null) {
-          client = spec.getConnectionConfiguration().createClient();
+        if (restClient == null) {
+          restClient = spec.getConnectionConfiguration().createClient();
         }
       }
 
       @StartBundle
       public void startBundle(Context context) throws Exception {
-        //TODO recode batch
-/*
         batch = new ArrayList<>();
         currentBatchSizeBytes = 0;
-*/
       }
 
       @ProcessElement
       public void processElement(ProcessContext context) throws Exception {
-        //TODO recode batch
-/*
-        String json = context.element();
-
-        String create =
-
-            batch.add(new Index.Builder(json).index(spec.getConnectionConfiguration().getIndex())
-                          .type(spec.getConnectionConfiguration().getType())
-                          .build());
-        currentBatchSizeBytes += json.getBytes().length;
+        String document = context.element();
+            batch.add(String.format("%s\n%s\n", "{ \"index\" : {} }", document));
+        currentBatchSizeBytes += document.getBytes().length;
         if (batch.size() >= spec.getBatchSize()
             || currentBatchSizeBytes >= (spec.getBatchSizeMegaBytes() * 1024 * 1024)) {
           finishBundle(context);
         }
-*/
       }
 
       @FinishBundle
       public void finishBundle(Context context) throws Exception {
-        //TODO recode batch
-/*
+        StringBuilder bulkRequest = new StringBuilder();
         if (batch.size() > 0) {
-          Bulk bulk = new Bulk.Builder()
-              .defaultIndex(spec.getConnectionConfiguration().getIndex())
-              .defaultType(spec.getConnectionConfiguration().getType())
-              .addAction(batch)
-              .build();
-          BulkResult result = client.execute(bulk);
-          if (!result.isSucceeded()) {
-            for (BulkResult.BulkResultItem item : result.getFailedItems()) {
-              System.out.println(item.toString());
-            }
-            throw new IllegalStateException("Can't update Elasticsearch: "
-                                                + result.getErrorMessage());
+          for (String json:batch){
+            bulkRequest.append(json);
+          }
+          Response response;
+          String endPoint = String.format("/%s/%s/_bulk",
+                                          spec.getConnectionConfiguration().getIndex(),
+                                          spec.getConnectionConfiguration().getType());
+          HttpEntity requestBody = new NStringEntity(bulkRequest.toString(), ContentType
+              .APPLICATION_JSON);
+          response = restClient.performRequest("POST", endPoint, null, requestBody, null);
+          JsonObject searchResult = parseResponse(response);
+          boolean errors = searchResult.getAsJsonPrimitive("errors").getAsBoolean();
+          if (errors != false) {
+            throw new IllegalStateException("Can't update Elasticsearch");
           }
           batch.clear();
         }
-*/
       }
 
       @Teardown
       public void closeClient() throws Exception {
-        if (client != null) {
-          client.close();
+        if (restClient != null) {
+          restClient.close();
         }
       }
 
