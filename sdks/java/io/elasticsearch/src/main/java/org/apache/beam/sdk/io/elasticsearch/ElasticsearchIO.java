@@ -20,9 +20,7 @@ package org.apache.beam.sdk.io.elasticsearch;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
+import com.google.gson.*;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -40,7 +38,6 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
-import com.google.gson.JsonPrimitive;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.BoundedSource;
@@ -298,7 +295,13 @@ public class ElasticsearchIO {
       Set<Map.Entry<String, JsonElement>> shards = shardsJson.entrySet();
       for (Map.Entry<String, JsonElement> shardJson : shards) {
         String shardId = shardJson.getKey();
-        sources.add(new BoundedElasticsearchSource(spec, shardId));
+        JsonArray value = (JsonArray) shardJson.getValue();
+        boolean isPrimaryShard =
+            value.get(0).getAsJsonObject().getAsJsonObject("routing").getAsJsonPrimitive(
+                "primary").getAsBoolean();
+        if (isPrimaryShard) {
+          sources.add(new BoundedElasticsearchSource(spec, shardId));
+        }
       }
       return sources;
     }
