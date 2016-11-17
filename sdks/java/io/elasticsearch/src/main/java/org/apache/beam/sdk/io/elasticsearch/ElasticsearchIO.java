@@ -438,9 +438,10 @@ public class ElasticsearchIO {
     @Override
     public void close() throws IOException {
       // remove the scroll
-      HttpEntity entity = new NStringEntity("{ \"scroll_id\" : [\"" + scroll + "\"] }",
+      String requestBody = String.format("{\"scroll_id\" : [\"%s\"]}", scroll);
+      HttpEntity entity = new NStringEntity(requestBody,
                                             ContentType.APPLICATION_JSON);
-      restClient.performRequest("DELETE", "_search/scroll",
+      restClient.performRequest("DELETE", "/_search/scroll",
                                 Collections.<String, String>emptyMap(),
                                 entity, new BasicHeader("",""));
       // close client
