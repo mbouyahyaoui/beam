@@ -282,10 +282,6 @@ public class ElasticsearchIO {
       this.shardPreference = shardPreference;
     }
 
-    public BoundedElasticsearchSource withShardPreference(String shardPreference) {
-      return new BoundedElasticsearchSource(spec, shardPreference);
-    }
-
     @Override
     public List<? extends BoundedSource<String>> splitIntoBundles(long desiredBundleSizeBytes,
                                                                   PipelineOptions options)
