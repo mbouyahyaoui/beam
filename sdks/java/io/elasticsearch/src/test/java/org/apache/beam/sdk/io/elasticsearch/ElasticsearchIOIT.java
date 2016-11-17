@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
+import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -37,6 +38,7 @@ import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_INDEX;
 import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIOTest.ES_TYPE;
 import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Integration test for Elasticsearch IO.
@@ -57,12 +59,12 @@ public class ElasticsearchIOIT {
                     .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE));
     ElasticsearchIO.BoundedElasticsearchSource initialSource =
         new ElasticsearchIO.BoundedElasticsearchSource(read, null);
-    long desiredBundleSizeBytes = 4000;
+    long desiredBundleSizeBytes = 0;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
     SourceTestUtils.
         assertSourcesEqualReferenceSource(initialSource, splits, options);
-    long expectedNbSplits = 15;
+    long expectedNbSplits = 5;
     assertEquals(expectedNbSplits, splits.size());
     int nonEmptySplits = 0;
     for (BoundedSource<String> subSource : splits) {
@@ -78,16 +80,12 @@ public class ElasticsearchIOIT {
   @Test
   @Category(NeedsRunner.class)
   public void testReadVolume() throws Exception {
-    String[] args = new String[] { "--runner=FlinkRunner", "--project=test-project" };
-
-    TestPipeline pipeline =
-        TestPipeline.fromOptions(PipelineOptionsFactory.fromArgs(args).create());
-
+    Pipeline pipeline = TestPipeline.create();
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
                 .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE)));
-    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(1000L);
+    PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(96253L);
     pipeline.run();
   }
 
@@ -102,8 +100,8 @@ public class ElasticsearchIOIT {
               .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE));
     ElasticsearchIO.BoundedElasticsearchSource initialSource =
         new ElasticsearchIO.BoundedElasticsearchSource(read, null);
-    assertEquals("Wrong estimated size", 1928649, initialSource.getEstimatedSizeBytes
-        (options));
+    assertTrue("Wrong estimated size", initialSource.getEstimatedSizeBytes
+        (options) > 1900000);
   }
 
 }
