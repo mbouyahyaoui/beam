@@ -397,7 +397,7 @@ public class ElasticsearchIO {
       params.put("scroll", "1m");
       params.put("size", "1");
       if (source.shardPreference != null) {
-        params.put("preference", "_shard:" + source.shardPreference);
+        params.put("preference", "_shards:" + source.shardPreference);
       }
       HttpEntity queryEntity = new NStringEntity(query, ContentType.APPLICATION_JSON);
       response = restClient.performRequest("GET", endPoint, params, queryEntity, new BasicHeader("",""));
@@ -413,7 +413,8 @@ public class ElasticsearchIO {
                                                       + "\"scroll_id\" : \"" + scroll + "\""
                                                       + "}", ContentType.APPLICATION_JSON);
 
-      Response response = restClient.performRequest("GET", "/_search/scroll", null, scrollEntity, new BasicHeader("",""));
+      Response response = restClient.performRequest("GET", "/_search/scroll", new HashMap<String, String>(), scrollEntity,
+                                                    new BasicHeader("",""));
       JsonObject searchResult = parseResponse(response);
       return updateCurrent(searchResult);
     }
