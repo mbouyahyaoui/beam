@@ -17,20 +17,6 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
-import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.Serializable;
-import java.net.ServerSocket;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -46,21 +32,14 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
-import org.apache.http.Header;
-import org.apache.http.HttpHost;
-import org.apache.http.auth.AuthScope;
-import org.apache.http.auth.UsernamePasswordCredentials;
-import org.apache.http.client.CredentialsProvider;
-import org.apache.http.impl.client.BasicCredentialsProvider;
-import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
-import org.apache.http.message.BasicHeader;
 import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsRequest;
 import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsResponse;
 import org.elasticsearch.action.admin.indices.upgrade.post.UpgradeRequest;
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.client.*;
+import org.elasticsearch.client.Client;
+import org.elasticsearch.client.IndicesAdminClient;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
@@ -73,6 +52,18 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Serializable;
+import java.net.ServerSocket;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Test on {@link ElasticsearchIO}.
@@ -119,13 +110,6 @@ public class ElasticsearchIOTest implements Serializable {
 
   @Before
   public void before() throws Exception {
-/*
-    RestClientBuilder restClientBuilder = RestClient.builder(
-        new HttpHost(ES_IP, 9200, "http"));
-    RestClient restClient = restClientBuilder.build();
-    Response response = restClient.performRequest("DELETE", "/" + ES_INDEX, new BasicHeader("",""));
-    restClient.close();
-*/
     IndicesAdminClient indices = node.client().admin().indices();
     IndicesExistsResponse indicesExistsResponse =
         indices.exists(new IndicesExistsRequest(ES_INDEX)).get();
@@ -165,7 +149,7 @@ public class ElasticsearchIOTest implements Serializable {
     // (due to internal Elasticsearch implementation)
     long estimatedSize = initialSource.getEstimatedSizeBytes(options);
     LOGGER.info("Estimated size: {}", estimatedSize);
-    assertTrue("Wrong estimated size", estimatedSize > 44000);
+    assertTrue("Wrong estimated size", estimatedSize > 40000);
   }
 
   @Test
@@ -180,13 +164,6 @@ public class ElasticsearchIOTest implements Serializable {
             ElasticsearchIO.ConnectionConfiguration
                 .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE)));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS);
-    output.apply(ParDo.of(new DoFn<String, String>() {
-      @ProcessElement
-      public void processElement(ProcessContext context) {
-        String element = context.element();
-        LOGGER.info(element);
-      }
-    }));
     pipeline.run();
   }
 
@@ -282,7 +259,7 @@ public class ElasticsearchIOTest implements Serializable {
   }
 
   @Test
-  public void testSplitsWithBiggerDesiredBundleSizeThanShardSize() throws Exception {
+  public void testSplitIntoBundles() throws Exception {
     sampleIndex(NB_DOCS);
     PipelineOptions options = PipelineOptionsFactory.create();
     ElasticsearchIO.Read read =
@@ -291,11 +268,14 @@ public class ElasticsearchIOTest implements Serializable {
                 .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
     BoundedElasticsearchSource initialSource =
         new BoundedElasticsearchSource(read, null);
-    int desiredBundleSizeBytes = 1073741824;
+    //desiredBundleSize is ignored because in ES 2.x there is no way to split shards. So we get
+    // as many bundles as ES shards and bundle size is shard size
+    int desiredBundleSizeBytes = 0;
     List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
         desiredBundleSizeBytes, options);
     SourceTestUtils.
         assertSourcesEqualReferenceSource(initialSource, splits, options);
+    //this is the number of ES shards
     int expectedNbSplits = 5;
     assertEquals(expectedNbSplits, splits.size());
     int nonEmptySplits = 0;
@@ -305,41 +285,6 @@ public class ElasticsearchIOTest implements Serializable {
       }
     }
     assertEquals("Wrong number of empty splits", expectedNbSplits, nonEmptySplits);
-  }
-
-  @Test
-  public void testSplitsWithSmallerDesiredBundleSizeThanShardSize() throws Exception {
-    sampleIndex(NB_DOCS);
-
-    PipelineOptions options = PipelineOptionsFactory.create();
-
-    ElasticsearchIO.Read read =
-        ElasticsearchIO.read().withConnectionConfiguration(ElasticsearchIO.ConnectionConfiguration
-                                                               .create("http://" + ES_IP + ":"
-                                                                           + esHttpPort, ES_INDEX,
-                                                                       ES_TYPE));
-
-    BoundedElasticsearchSource initialSource =
-        new BoundedElasticsearchSource(read, null);
-    long desiredBundleSizeBytes = 4000;
-
-    List<? extends BoundedSource<String>> splits = initialSource.splitIntoBundles(
-        desiredBundleSizeBytes, options);
-    SourceTestUtils.assertSourcesEqualReferenceSource(initialSource, splits, options);
-
-    // due to the same reason as estimated size, as Elasticsearch never creates index with the
-    // same size, the number of splits can vary a little
-    LOGGER.info("Number of splits: {}", splits.size());
-    assertTrue("Wrong number of splits", (splits.size() >= 13 && splits.size() <= 15));
-
-    int nonEmptySplits = 0;
-    for (BoundedSource<String> subSource : splits) {
-      if (readFromSource(subSource, options).size() > 0) {
-        nonEmptySplits += 1;
-      }
-    }
-    LOGGER.info("Number of empty splits: {}", nonEmptySplits);
-    assertTrue("Wrong number of empty splits", (nonEmptySplits >= 13 && nonEmptySplits <= 15));
   }
 
   @AfterClass
