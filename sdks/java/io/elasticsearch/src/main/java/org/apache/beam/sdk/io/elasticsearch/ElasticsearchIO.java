@@ -413,7 +413,8 @@ public class ElasticsearchIO {
                                                       + "\"scroll_id\" : \"" + scroll + "\""
                                                       + "}", ContentType.APPLICATION_JSON);
 
-      Response response = restClient.performRequest("GET", "/_search/scroll", new HashMap<String, String>(), scrollEntity,
+      Response response = restClient.performRequest("GET", "/_search/scroll", Collections.<String, String>emptyMap(),
+                                                    scrollEntity,
                                                     new BasicHeader("",""));
       JsonObject searchResult = parseResponse(response);
       return updateCurrent(searchResult);
@@ -552,7 +553,8 @@ public class ElasticsearchIO {
                                           spec.getConnectionConfiguration().getType());
           HttpEntity requestBody = new NStringEntity(bulkRequest.toString(), ContentType
               .APPLICATION_JSON);
-          response = restClient.performRequest("POST", endPoint, null, requestBody, new BasicHeader("",""));
+          response = restClient.performRequest("POST", endPoint, Collections.<String, String>emptyMap(), requestBody, new
+              BasicHeader("",""));
           JsonObject searchResult = parseResponse(response);
           boolean errors = searchResult.getAsJsonPrimitive("errors").getAsBoolean();
           if (errors != false) {
