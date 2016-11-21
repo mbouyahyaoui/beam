@@ -48,7 +48,6 @@ public class ElasticsearchIOIT {
   private static final String ES_HTTP_PORT = "9200";
 
   //ignored for now because needs ES integration test environment
-  @Ignore
   @Test
   public void testSplitsVolume() throws Exception {
     PipelineOptions options = PipelineOptionsFactory.create();
@@ -76,7 +75,6 @@ public class ElasticsearchIOIT {
   }
 
   //ignored for now because needs ES integration test environment
-  @Ignore
   @Test
   @Category(NeedsRunner.class)
   public void testReadVolume() throws Exception {
@@ -90,7 +88,6 @@ public class ElasticsearchIOIT {
   }
 
   //ignored for now because needs ES integration test environment
-  @Ignore
   @Test
   public void testEstimatedSizesVolume() throws IOException {
     PipelineOptions options = PipelineOptionsFactory.create();
