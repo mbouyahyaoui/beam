@@ -18,6 +18,7 @@
 package org.apache.beam.sdk.io.elasticsearch;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import com.google.auto.value.AutoValue;
 import com.google.gson.*;
@@ -28,13 +29,7 @@ import java.io.InputStreamReader;
 import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Set;
+import java.util.*;
 
 import javax.annotation.Nullable;
 
@@ -135,7 +130,7 @@ public class ElasticsearchIO {
   @AutoValue
   public abstract static class ConnectionConfiguration implements Serializable {
 
-    abstract String getAddress();
+    abstract List<String> getAddresses();
 
     @Nullable
     abstract String getUsername();
@@ -151,7 +146,7 @@ public class ElasticsearchIO {
 
     @AutoValue.Builder
     abstract static class Builder {
-      abstract Builder setAddress(String address);
+      abstract Builder setAddresses(List<String> addresses);
 
       abstract Builder setUsername(String username);
 
@@ -164,12 +159,12 @@ public class ElasticsearchIO {
       abstract ConnectionConfiguration build();
     }
 
-    public static ConnectionConfiguration create(String address, String index, String type) {
-      checkNotNull(address, "address is required");
+    public static ConnectionConfiguration create(String[] addresses, String index, String type) {
+      checkState(addresses.length != 0, "address is required");
       checkNotNull(index, "index name is required");
       checkNotNull(type, "type is required");
       return new AutoValue_ElasticsearchIO_ConnectionConfiguration.Builder()
-          .setAddress(address)
+          .setAddresses(Arrays.asList(addresses))
           .setIndex(index)
           .setType(type)
           .build();
@@ -184,16 +179,21 @@ public class ElasticsearchIO {
     }
 
     private void populateDisplayData(DisplayData.Builder builder) {
-      builder.add(DisplayData.item("address", getAddress()));
+      builder.add(DisplayData.item("address", getAddresses().toString()));
       builder.add(DisplayData.item("index", getIndex()));
       builder.add(DisplayData.item("type", getType()));
       builder.addIfNotNull(DisplayData.item("username", getUsername()));
     }
 
     private RestClient createClient() throws MalformedURLException {
-      URL url = new URL(getAddress());
-      RestClientBuilder restClientBuilder =
-          RestClient.builder(new HttpHost(url.getHost(), url.getPort(), url.getProtocol()));
+      HttpHost[] hosts = new HttpHost[getAddresses().size()];
+      int i = 0;
+      for (String address : getAddresses()) {
+        URL url = new URL(address);
+        hosts[i] = new HttpHost(url.getHost(), url.getPort(), url.getProtocol());
+        i++;
+      }
+      RestClientBuilder restClientBuilder = RestClient.builder(hosts);
       if (getUsername() != null) {
         final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
         credentialsProvider.setCredentials(AuthScope.ANY,

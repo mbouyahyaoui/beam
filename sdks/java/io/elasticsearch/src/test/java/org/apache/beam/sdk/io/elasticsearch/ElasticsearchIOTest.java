@@ -139,10 +139,11 @@ public class ElasticsearchIOTest implements Serializable {
   public void testSizes() throws Exception {
     sampleIndex(NB_DOCS);
     PipelineOptions options = PipelineOptionsFactory.create();
+    String[] addresses = {"http://" + ES_IP + ":" + esHttpPort};
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
+                .create(addresses, ES_INDEX, ES_TYPE));
     BoundedElasticsearchSource initialSource =
         new BoundedElasticsearchSource(read, null);
     // can't use equal assert as Elasticsearch indexes never have same size
@@ -159,10 +160,11 @@ public class ElasticsearchIOTest implements Serializable {
 
     TestPipeline pipeline = TestPipeline.create();
 
+    String[] addresses = { "http://" + ES_IP + ":" + esHttpPort };
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE))
+                .create(addresses, ES_INDEX, ES_TYPE))
             .withScrollKeepalive("5m"));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS);
     pipeline.run();
@@ -186,10 +188,11 @@ public class ElasticsearchIOTest implements Serializable {
 
     Pipeline pipeline = TestPipeline.create();
 
+    String[] addresses = {"http://" + ES_IP + ":" + esHttpPort};
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE))
+                .create(addresses, ES_INDEX, ES_TYPE))
             .withQuery(query));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS / 10);
     pipeline.run();
@@ -200,6 +203,7 @@ public class ElasticsearchIOTest implements Serializable {
   public void testWrite() throws Exception {
     Pipeline pipeline = TestPipeline.create();
 
+    String[] addresses = {"http://" + ES_IP + ":" + esHttpPort};
     String[] scientists =
         { "Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday", "Newton", "Bohr",
             "Galilei", "Maxwell" };
@@ -211,7 +215,7 @@ public class ElasticsearchIOTest implements Serializable {
     pipeline.apply(Create.of(data)).apply(
         ElasticsearchIO.write().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE)));
+                .create(addresses, ES_INDEX, ES_TYPE)));
     pipeline.run();
 
     // upgrade
@@ -230,6 +234,7 @@ public class ElasticsearchIOTest implements Serializable {
   public void testWriteWithBatchSizes() throws Exception {
     Pipeline pipeline = TestPipeline.create();
 
+    String[] addresses = {"http://" + ES_IP + ":" + esHttpPort};
     String[] scientists =
         { "Einstein", "Darwin", "Copernicus", "Pasteur", "Curie", "Faraday", "Newton", "Bohr",
             "Galilei", "Maxwell" };
@@ -241,8 +246,7 @@ public class ElasticsearchIOTest implements Serializable {
     PDone collection = pipeline.apply(Create.of(data)).apply(
         ElasticsearchIO.write()
             .withConnectionConfiguration(ElasticsearchIO.ConnectionConfiguration
-                                             .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX,
-                                                     ES_TYPE))
+                                             .create(addresses, ES_INDEX, ES_TYPE))
             .withBatchSize(NB_DOCS / 2)
             .withBatchSizeMegaBytes(1));
 
@@ -263,10 +267,11 @@ public class ElasticsearchIOTest implements Serializable {
   public void testSplitIntoBundles() throws Exception {
     sampleIndex(NB_DOCS);
     PipelineOptions options = PipelineOptionsFactory.create();
+    String[] addresses = {"http://" + ES_IP + ":" + esHttpPort};
     ElasticsearchIO.Read read =
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE));
+                .create(addresses, ES_INDEX, ES_TYPE));
     BoundedElasticsearchSource initialSource =
         new BoundedElasticsearchSource(read, null);
     //desiredBundleSize is ignored because in ES 2.x there is no way to split shards. So we get
