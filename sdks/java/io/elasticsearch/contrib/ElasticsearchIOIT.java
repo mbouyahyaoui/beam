@@ -47,7 +47,6 @@ public class ElasticsearchIOIT {
   private static final String ES_IP = "localhost";
   private static final String ES_HTTP_PORT = "9200";
 
-  //ignored for now because needs ES integration test environment
   @Test
   public void testSplitsVolume() throws Exception {
     PipelineOptions options = PipelineOptionsFactory.create();
@@ -74,20 +73,23 @@ public class ElasticsearchIOIT {
     assertEquals(expectedNbSplits, nonEmptySplits);
   }
 
-  //ignored for now because needs ES integration test environment
   @Test
   @Category(NeedsRunner.class)
   public void testReadVolume() throws Exception {
-    Pipeline pipeline = TestPipeline.create();
+    //use flink runner otherwise only one source is created
+    String[] args = new String[] { "--runner=FlinkRunner", "--project=test-project" };
+
+    TestPipeline pipeline =
+        TestPipeline.fromOptions(PipelineOptionsFactory.fromArgs(args).create());
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE)));
+                .create("http://" + ES_IP + ":" + ES_HTTP_PORT, ES_INDEX, ES_TYPE))
+            .withScrollKeepalive("5m"));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(96253L);
     pipeline.run();
   }
 
-  //ignored for now because needs ES integration test environment
   @Test
   public void testEstimatedSizesVolume() throws IOException {
     PipelineOptions options = PipelineOptionsFactory.create();

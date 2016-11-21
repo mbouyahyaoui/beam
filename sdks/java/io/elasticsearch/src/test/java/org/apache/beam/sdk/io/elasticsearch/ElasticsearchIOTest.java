@@ -162,7 +162,8 @@ public class ElasticsearchIOTest implements Serializable {
     PCollection<String> output = pipeline.apply(
         ElasticsearchIO.read().withConnectionConfiguration(
             ElasticsearchIO.ConnectionConfiguration
-                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE)));
+                .create("http://" + ES_IP + ":" + esHttpPort, ES_INDEX, ES_TYPE))
+            .withScrollKeepalive("5m"));
     PAssert.thatSingleton(output.apply("Count", Count.<String>globally())).isEqualTo(NB_DOCS);
     pipeline.run();
   }

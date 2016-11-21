@@ -223,6 +223,9 @@ public class ElasticsearchIO {
     @Nullable
     abstract String getQuery();
 
+    @Nullable
+    abstract String getScrollKeepalive();
+
     abstract Builder builder();
 
     @AutoValue.Builder
@@ -230,6 +233,8 @@ public class ElasticsearchIO {
       abstract Builder setConnectionConfiguration(ConnectionConfiguration connectionConfiguration);
 
       abstract Builder setQuery(String query);
+
+      abstract Builder setScrollKeepalive(String scrollKeepalive);
 
       abstract Read build();
     }
@@ -240,8 +245,13 @@ public class ElasticsearchIO {
     }
 
     public Read withQuery(String query) {
-      checkNotNull(query, "query");
+      checkNotNull(query, "Query should not be null");
       return builder().setQuery(query).build();
+    }
+
+    public Read withScrollKeepalive(String scrollKeepalive) {
+      checkNotNull(scrollKeepalive, "scrollKeepalive should not be null");
+      return builder().setScrollKeepalive(scrollKeepalive).build();
     }
 
     @Override
@@ -307,16 +317,17 @@ public class ElasticsearchIO {
     }
 
     @Override
-    public long getEstimatedSizeBytes(PipelineOptions options) throws IOException{
+    public long getEstimatedSizeBytes(PipelineOptions options) throws IOException {
       // as Elasticsearch 2.x doesn't not support any way to do parallel read inside a shard
       // the estimated size bytes is not really used in the split into bundles.
       // However, we implement this method anyway as the runners can use it.
       // NB: Elasticsearch 5.x now provides the slice API.
-        JsonObject statsJson = getStats(false);
-        JsonObject indexStats =
-            statsJson.getAsJsonObject("indices").getAsJsonObject(spec.getConnectionConfiguration().getIndex()).getAsJsonObject("primaries");
-        JsonObject store = indexStats.getAsJsonObject("store");
-        return store.getAsJsonPrimitive("size_in_bytes").getAsLong();
+      JsonObject statsJson = getStats(false);
+      JsonObject indexStats =
+          statsJson.getAsJsonObject("indices").getAsJsonObject(
+              spec.getConnectionConfiguration().getIndex()).getAsJsonObject("primaries");
+      JsonObject store = indexStats.getAsJsonObject("store");
+      return store.getAsJsonPrimitive("size_in_bytes").getAsLong();
     }
 
     @Override
@@ -347,14 +358,15 @@ public class ElasticsearchIO {
 
     private JsonObject getStats(boolean shardLevel) throws IOException {
       RestClient restClient = spec.getConnectionConfiguration().createClient();
-      HashMap<String,String> params = new HashMap<>();
+      HashMap<String, String> params = new HashMap<>();
       if (shardLevel) {
         params.put("level", "shards");
       }
       String endpoint = String.format("/%s/_stats",
-                                    spec.getConnectionConfiguration
-                                        ().getIndex());
-      Response response = restClient.performRequest("GET", endpoint, params, new BasicHeader("", ""));
+                                      spec.getConnectionConfiguration
+                                          ().getIndex());
+      Response response =
+          restClient.performRequest("GET", endpoint, params, new BasicHeader("", ""));
       restClient.close();
       return parseResponse(response);
 
@@ -389,17 +401,18 @@ public class ElasticsearchIO {
 
       Response response;
       String endPoint = String.format("/%s/%s/_search",
-                                 source.spec.getConnectionConfiguration().getIndex(),
-                                 source.spec.getConnectionConfiguration().getType());
+                                      source.spec.getConnectionConfiguration().getIndex(),
+                                      source.spec.getConnectionConfiguration().getType());
       Map<String, String> params = new HashMap<>();
-      //TODO pass keepalive
-      params.put("scroll", "1m");
+      params.put("scroll", source.spec.getScrollKeepalive() != null ? source.spec
+          .getScrollKeepalive() : "1m");
       params.put("size", "1");
       if (source.shardPreference != null) {
         params.put("preference", "_shards:" + source.shardPreference);
       }
       HttpEntity queryEntity = new NStringEntity(query, ContentType.APPLICATION_JSON);
-      response = restClient.performRequest("GET", endPoint, params, queryEntity, new BasicHeader("",""));
+      response =
+          restClient.performRequest("GET", endPoint, params, queryEntity, new BasicHeader("", ""));
       JsonObject searchResult = parseResponse(response);
       scroll = searchResult.getAsJsonPrimitive("_scroll_id").getAsString();
       return updateCurrent(searchResult);
@@ -407,14 +420,14 @@ public class ElasticsearchIO {
 
     @Override
     public boolean advance() throws IOException {
-      HttpEntity scrollEntity = new NStringEntity("{"
-                                                      + "\"scroll\" : \"1m\","
-                                                      + "\"scroll_id\" : \"" + scroll + "\""
-                                                      + "}", ContentType.APPLICATION_JSON);
-
-      Response response = restClient.performRequest("GET", "/_search/scroll", Collections.<String, String>emptyMap(),
+      String requestBody = String.format("{\"scroll\" : \"%s\",\"scroll_id\" : \"%s\"}",
+                                         source.spec.getScrollKeepalive() != null ? source.spec
+                                             .getScrollKeepalive() : "1m", scroll);
+      HttpEntity scrollEntity = new NStringEntity(requestBody, ContentType.APPLICATION_JSON);
+      Response response = restClient.performRequest("GET", "/_search/scroll",
+                                                    Collections.<String, String>emptyMap(),
                                                     scrollEntity,
-                                                    new BasicHeader("",""));
+                                                    new BasicHeader("", ""));
       JsonObject searchResult = parseResponse(response);
       return updateCurrent(searchResult);
     }
@@ -440,9 +453,18 @@ public class ElasticsearchIO {
       String requestBody = String.format("{\"scroll_id\" : [\"%s\"]}", scroll);
       HttpEntity entity = new NStringEntity(requestBody,
                                             ContentType.APPLICATION_JSON);
-      restClient.performRequest("DELETE", "/_search/scroll",
-                                Collections.<String, String>emptyMap(),
-                                entity, new BasicHeader("",""));
+      try {
+        restClient.performRequest("DELETE", "/_search/scroll",
+                                  Collections.<String, String>emptyMap(),
+                                  entity, new BasicHeader("", ""));
+      }
+      //ES gives the same scroll id to each source, close that scroll more than once produces an
+      // error is ES 5.x so protect this: cannot request if a particular scroll id is still open
+      // so ignores exception (raised with ES v5.x)
+      catch (IOException e) {
+        if (e.getMessage() != null && !e.getMessage().contains("no scroll ids specified"))
+          throw e;
+      }
       // close client
       if (restClient != null) {
         restClient.close();
@@ -532,7 +554,7 @@ public class ElasticsearchIO {
       @ProcessElement
       public void processElement(ProcessContext context) throws Exception {
         String document = context.element();
-            batch.add(String.format("%s\n%s\n", "{ \"index\" : {} }", document));
+        batch.add(String.format("%s\n%s\n", "{ \"index\" : {} }", document));
         currentBatchSizeBytes += document.getBytes().length;
         if (batch.size() >= spec.getBatchSize()
             || currentBatchSizeBytes >= (spec.getBatchSizeMegaBytes() * 1024 * 1024)) {
@@ -544,7 +566,7 @@ public class ElasticsearchIO {
       public void finishBundle(Context context) throws Exception {
         StringBuilder bulkRequest = new StringBuilder();
         if (batch.size() > 0) {
-          for (String json:batch){
+          for (String json : batch) {
             bulkRequest.append(json);
           }
           Response response;
@@ -553,8 +575,10 @@ public class ElasticsearchIO {
                                           spec.getConnectionConfiguration().getType());
           HttpEntity requestBody = new NStringEntity(bulkRequest.toString(), ContentType
               .APPLICATION_JSON);
-          response = restClient.performRequest("POST", endPoint, Collections.<String, String>emptyMap(), requestBody, new
-              BasicHeader("",""));
+          response =
+              restClient.performRequest("POST", endPoint, Collections.<String, String>emptyMap(),
+                                        requestBody, new
+                                            BasicHeader("", ""));
           JsonObject searchResult = parseResponse(response);
           boolean errors = searchResult.getAsJsonPrimitive("errors").getAsBoolean();
           if (errors != false) {
