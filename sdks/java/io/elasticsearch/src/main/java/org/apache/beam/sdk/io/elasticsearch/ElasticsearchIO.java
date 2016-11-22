@@ -21,7 +21,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.auto.value.AutoValue;
-import com.google.gson.*;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,8 +32,14 @@ import java.io.InputStreamReader;
 import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.*;
-
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
 import javax.annotation.Nullable;
 
 import org.apache.beam.sdk.coders.Coder;
@@ -59,7 +68,7 @@ import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 
 /**
- * <p>IO to read and write data on Elasticsearch.
+ * IO to read and write data on Elasticsearch.
  *
  * <h3>Reading from Elasticsearch</h3>
  *
@@ -457,13 +466,13 @@ public class ElasticsearchIO {
         restClient.performRequest("DELETE", "/_search/scroll",
                                   Collections.<String, String>emptyMap(),
                                   entity, new BasicHeader("", ""));
-      }
-      //ES gives the same scroll id to each source, close that scroll more than once produces an
-      // error is ES 5.x so protect this: cannot request if a particular scroll id is still open
-      // so ignores exception (raised with ES v5.x)
-      catch (IOException e) {
-        if (e.getMessage() != null && !e.getMessage().contains("no scroll ids specified"))
+      } catch (IOException e) {
+        //ES gives the same scroll id to each source, close that scroll more than once produces an
+        // error is ES 5.x so protect this: cannot request if a particular scroll id is still open
+        // so ignores exception (raised with ES v5.x)
+        if (e.getMessage() != null && !e.getMessage().contains("no scroll ids specified")) {
           throw e;
+        }
       }
       // close client
       if (restClient != null) {
@@ -581,7 +590,7 @@ public class ElasticsearchIO {
                                             BasicHeader("", ""));
           JsonObject searchResult = parseResponse(response);
           boolean errors = searchResult.getAsJsonPrimitive("errors").getAsBoolean();
-          if (errors != false) {
+          if (errors) {
             throw new IllegalStateException("Can't update Elasticsearch");
           }
           batch.clear();
