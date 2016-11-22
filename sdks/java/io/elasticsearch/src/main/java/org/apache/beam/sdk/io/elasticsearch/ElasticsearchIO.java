@@ -530,7 +530,7 @@ public class ElasticsearchIO {
 
       private Write spec;
 
-      private RestClient restClient;
+      private transient RestClient restClient;
       private ArrayList<String> batch;
       private long currentBatchSizeBytes;
 
@@ -554,10 +554,10 @@ public class ElasticsearchIO {
       @ProcessElement
       public void processElement(ProcessContext context) throws Exception {
         String document = context.element();
-        batch.add(String.format("%s\n%s\n", "{ \"index\" : {} }", document));
+        batch.add(String.format("%s%n%s%n", "{ \"index\" : {} }", document));
         currentBatchSizeBytes += document.getBytes().length;
         if (batch.size() >= spec.getBatchSize()
-            || currentBatchSizeBytes >= (spec.getBatchSizeMegaBytes() * 1024 * 1024)) {
+            || currentBatchSizeBytes >= (spec.getBatchSizeMegaBytes() * 1024L * 1024L)) {
           finishBundle(context);
         }
       }
