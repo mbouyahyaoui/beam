@@ -17,6 +17,18 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
+import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
+import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Serializable;
+import java.net.ServerSocket;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -27,8 +39,6 @@ import org.apache.beam.sdk.testing.SourceTestUtils;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.Create;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.commons.io.FileUtils;
@@ -52,18 +62,6 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.Serializable;
-import java.net.ServerSocket;
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.apache.beam.sdk.io.elasticsearch.ElasticsearchIO.BoundedElasticsearchSource;
-import static org.apache.beam.sdk.testing.SourceTestUtils.readFromSource;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 /**
  * Test on {@link ElasticsearchIO}.
@@ -113,8 +111,9 @@ public class ElasticsearchIOTest implements Serializable {
     IndicesAdminClient indices = node.client().admin().indices();
     IndicesExistsResponse indicesExistsResponse =
         indices.exists(new IndicesExistsRequest(ES_INDEX)).get();
-    if (indicesExistsResponse.isExists())
+    if (indicesExistsResponse.isExists()) {
       indices.prepareDelete(ES_INDEX).get();
+    }
   }
 
   private void sampleIndex(long nbDocs) throws Exception {
