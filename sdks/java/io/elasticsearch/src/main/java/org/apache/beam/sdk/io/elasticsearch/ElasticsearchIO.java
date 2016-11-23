@@ -17,7 +17,7 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.auto.value.AutoValue;
@@ -76,8 +76,8 @@ import org.elasticsearch.client.RestClientBuilder;
  * as {@code PCollection<String>}.
  *
  * <p>To configure the Elasticsearch source, you have to provide a connection configuration
- * containing the HTTP address of the instance, an index name and a type. The following example
- * illustrates various options for configuring the source:
+ * containing the HTTP address of the instances, an index name and a type. The following example
+ * illustrates options for configuring the source:
  *
  * <pre>{@code
  *
@@ -140,38 +140,31 @@ public class ElasticsearchIO {
   public abstract static class ConnectionConfiguration implements Serializable {
 
     abstract List<String> getAddresses();
-
-    @Nullable
-    abstract String getUsername();
-
-    @Nullable
-    abstract String getPassword();
-
+    @Nullable abstract String getUsername();
+    @Nullable abstract String getPassword();
     abstract String getIndex();
-
     abstract String getType();
-
     abstract Builder builder();
 
     @AutoValue.Builder
     abstract static class Builder {
       abstract Builder setAddresses(List<String> addresses);
-
       abstract Builder setUsername(String username);
-
       abstract Builder setPassword(String password);
-
       abstract Builder setIndex(String index);
-
       abstract Builder setType(String type);
-
       abstract ConnectionConfiguration build();
     }
 
     public static ConnectionConfiguration create(String[] addresses, String index, String type) {
-      checkState(addresses.length != 0, "address is required");
-      checkNotNull(index, "index name is required");
-      checkNotNull(type, "type is required");
+      checkArgument(addresses != null, "ConnectionConfiguration.create(addresses, index, type) "
+          + "called with null address");
+      checkArgument(addresses.length != 0, "ConnectionConfiguration.create(addresses, "
+          + "index, type) called with empty addresses");
+      checkArgument(index != null, "ConnectionConfiguration.create(addresses, index, type) called"
+          + " with null index");
+      checkArgument(type != null, "ConnectionConfiguration.create(addresses, index, type) called "
+          + "with null type");
       return new AutoValue_ElasticsearchIO_ConnectionConfiguration.Builder()
           .setAddresses(Arrays.asList(addresses))
           .setIndex(index)
@@ -226,40 +219,35 @@ public class ElasticsearchIO {
    */
   @AutoValue
   public abstract static class Read extends PTransform<PBegin, PCollection<String>> {
-    @Nullable
-    abstract ConnectionConfiguration getConnectionConfiguration();
 
-    @Nullable
-    abstract String getQuery();
-
-    @Nullable
-    abstract String getScrollKeepalive();
-
+    @Nullable abstract ConnectionConfiguration getConnectionConfiguration();
+    @Nullable abstract String getQuery();
+    @Nullable abstract String getScrollKeepalive();
     abstract Builder builder();
 
     @AutoValue.Builder
     abstract static class Builder {
       abstract Builder setConnectionConfiguration(ConnectionConfiguration connectionConfiguration);
-
       abstract Builder setQuery(String query);
-
       abstract Builder setScrollKeepalive(String scrollKeepalive);
-
       abstract Read build();
     }
 
     public Read withConnectionConfiguration(ConnectionConfiguration connectionConfiguration) {
-      checkNotNull(connectionConfiguration, "connectionConfiguration");
+      checkArgument(connectionConfiguration != null, "ElasticsearchIO.read()"
+          + ".withConnectionConfiguration(configuration) called with null configuration");
       return builder().setConnectionConfiguration(connectionConfiguration).build();
     }
 
     public Read withQuery(String query) {
-      checkNotNull(query, "Query should not be null");
+      checkArgument(query != null, "ElasticsearchIO.read().withQuery(query) called with null "
+          + "query");
       return builder().setQuery(query).build();
     }
 
     public Read withScrollKeepalive(String scrollKeepalive) {
-      checkNotNull(scrollKeepalive, "scrollKeepalive should not be null");
+      checkArgument(scrollKeepalive != null, "ElasticsearchIO.read().withScrollKeepalive"
+          + "(keepalive) called with null keepalive");
       return builder().setScrollKeepalive(scrollKeepalive).build();
     }
 
@@ -272,7 +260,8 @@ public class ElasticsearchIO {
 
     @Override
     public void validate(PBegin input) {
-      checkNotNull(getConnectionConfiguration(), "connectionConfiguration");
+      checkState(getConnectionConfiguration() != null, "ElasticsearchIO.read() requires a "
+          + "connection configuration to be set via withConnectionConfiguration(configuration)");
     }
 
     @Override
@@ -492,27 +481,22 @@ public class ElasticsearchIO {
   @AutoValue
   public abstract static class Write extends PTransform<PCollection<String>, PDone> {
 
-    @Nullable
-    abstract ConnectionConfiguration getConnectionConfiguration();
-
+    @Nullable abstract ConnectionConfiguration getConnectionConfiguration();
     abstract long getBatchSize();
-
     abstract int getBatchSizeMegaBytes();
-
     abstract Builder builder();
 
     @AutoValue.Builder
     abstract static class Builder {
       abstract Builder setConnectionConfiguration(ConnectionConfiguration connectionConfiguration);
-
       abstract Builder setBatchSize(long batchSize);
-
       abstract Builder setBatchSizeMegaBytes(int batchSizeMegaBytes);
-
       abstract Write build();
     }
 
     public Write withConnectionConfiguration(ConnectionConfiguration connectionConfiguration) {
+      checkArgument(connectionConfiguration != null, "ElasticsearchIO.write()"
+          + ".withConnectionConfiguration(configuration) called with null configuration");
       return builder().setConnectionConfiguration(connectionConfiguration).build();
     }
 
@@ -526,7 +510,8 @@ public class ElasticsearchIO {
 
     @Override
     public void validate(PCollection<String> input) {
-      checkNotNull(getConnectionConfiguration(), "connectionConfiguration");
+      checkState(getConnectionConfiguration() != null, "ElasticsearchIO.write() requires a "
+          + "connection configuration to be set via withConnectionConfiguration(configuration)");
     }
 
     @Override
