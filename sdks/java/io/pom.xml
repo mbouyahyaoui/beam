@@ -75,6 +75,7 @@
     <module>kinesis</module>
     <module>mongodb</module>
     <module>mqtt</module>
+    <module>redis</module>
   </modules>
 
   <profiles>
