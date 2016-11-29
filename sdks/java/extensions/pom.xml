@@ -34,6 +34,7 @@
   <modules>
     <module>join-library</module>
     <module>sorter</module>
+    <module>dataformat</module>
   </modules>
 
 </project>
