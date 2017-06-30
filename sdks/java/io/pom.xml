@@ -43,6 +43,7 @@
     <module>hadoop</module>
     <module>hbase</module>
     <module>hcatalog</module>
+    <module>influxdb</module>
     <module>jdbc</module>
     <module>jms</module>
     <module>kafka</module>
