@@ -62,26 +62,12 @@ public class InfluxDbIO {
   private static final Logger LOG = LoggerFactory.getLogger(InfluxDbIO.class);
 
   /**
-   * Callback for the parser to use to submit data.
-   */
-  public interface ParserCallback<T> extends Serializable {
-
-    /**
-     * Output the object.  The default timestamp will be the GridFSDBFile
-     * creation timestamp.
-     * @param output
-     */
-    void output(T output);
-
-  }
-
-  /**
    * Interface for the parser that is used to parse the GridFSDBFile into
    * the appropriate types.
    * @param <T>
    */
   public interface Parser<T> extends Serializable {
-    void parse(String input, ParserCallback<T> callback) throws IOException;
+    T parse(String input) throws IOException;
   }
 
   /**
@@ -91,9 +77,8 @@ public class InfluxDbIO {
    */
   private static final Parser<String> TEXT_PARSER = new Parser<String>() {
     @Override
-    public void parse(String input, ParserCallback<String> callback)
-        throws IOException {
-      callback.output(input);
+    public String parse(String input) throws IOException {
+      return input;
     }
   };
 
@@ -151,23 +136,8 @@ public class InfluxDbIO {
 
     @Override
     public PCollection<T> expand(PBegin input) {
-      LOG.debug("Reading data from InfluxDB");
-      PCollection<String> data = input.apply(org.apache.beam.sdk.io.Read.from(new BoundedInfluxDbSource(this)));
-      // TODO: not good: the parsing can be done directly in the reader, I will do this refactoring
-      PCollection<T> parsedData = data.apply(ParDo.of(new DoFn<String, T>() {
-        @ProcessElement
-        public void processElement(final ProcessContext c) throws IOException {
-          String entry = c.element();
-          LOG.debug("Parsing {}", entry);
-          parser().parse(entry, new ParserCallback<T>() {
-            @Override
-            public void output(T output) {
-              c.output(output);
-            }
-          });
-        }
-      }));
-      return parsedData;
+      return input.getPipeline()
+          .apply(org.apache.beam.sdk.io.Read.from(new InfluxDbSource<T>(this)));
     }
 
     @Override
@@ -188,33 +158,19 @@ public class InfluxDbIO {
       builder.add(DisplayData.item("coder", coder().getClass().getName()));
     }
 
-    /** A {@link DoFn} executing the SQL query to read from the database. */
-    static class ReadFn<T> extends DoFn<String, T> {
-      private InfluxDbIO.Read<T> spec;
-      private ReadFn(Read<T> spec) {
-        this.spec = spec;
-      }
-      @ProcessElement
-      public void processElement(ProcessContext context) throws Exception {
-        System.out.println("InfluxDB entry: " + context.element());
-        context.output((T) context.element()); // Rama: Need to check the implementation
-      }
-    }
   }
 
-  private static class BoundedInfluxDbSource extends BoundedSource<String> {
+  private static class InfluxDbSource<T> extends BoundedSource<T> {
 
     private Read spec;
 
-    public BoundedInfluxDbSource(Read spec) {
+    public InfluxDbSource(Read spec) {
       this.spec = spec;
     }
 
     @Override
-    public Coder<String> getDefaultOutputCoder() {
-      return SerializableCoder.of(String.class);
-      //StringUtf8Coder.of();
-      //SerializableCoder.of(String.class);
+    public Coder<T> getDefaultOutputCoder() {
+      return spec.coder();
     }
 
     @Override
@@ -228,8 +184,8 @@ public class InfluxDbIO {
     }
 
     @Override
-    public BoundedReader<String> createReader(PipelineOptions options) throws IOException {
-      return new BoundedInfluxDbReader(this);
+    public BoundedReader<T> createReader(PipelineOptions options) throws IOException {
+      return new InfluxDbReader(this);
     }
 
     @Override
@@ -254,9 +210,9 @@ public class InfluxDbIO {
     }
 
     @Override
-    public List<? extends BoundedSource<String>> split(long desiredBundleSizeBytes,
+    public List<? extends BoundedSource<T>> split(long desiredBundleSizeBytes,
                                                        PipelineOptions options) throws Exception {
-      List<BoundedSource<String>> sources = new ArrayList<>();
+      List<BoundedSource<T>> sources = new ArrayList<>();
       InfluxDB influxDB = InfluxDBFactory.connect(spec.uri());
       influxDB.createDatabase(spec.database());
       Query query = new Query("SELECT * FROM " + spec.database(), spec.database());
@@ -277,14 +233,14 @@ public class InfluxDbIO {
 
   // TODO the reader can be a BoundedReader<T> and use the parser for each element read, largely
   // more efficient !
-  private static class BoundedInfluxDbReader extends BoundedSource.BoundedReader<String> {
+  private static class InfluxDbReader<T> extends BoundedSource.BoundedReader<T> {
 
-    private final BoundedInfluxDbSource source;
+    private final InfluxDbSource<T> source;
     private Iterator cursor;
-    private List current;
+    private T current;
     private InfluxDB influxDB;
 
-    public BoundedInfluxDbReader(BoundedInfluxDbSource source) {
+    public InfluxDbReader(InfluxDbSource<T> source) {
       this.source = source;
     }
 
@@ -306,7 +262,8 @@ public class InfluxDbIO {
     @Override
     public boolean advance() throws IOException {
       if (cursor.hasNext()) {
-        current = (List) cursor.next();
+        String element = cursor.next().toString();
+        current = (T) source.spec.parser().parse(element);
         return true;
       } else {
         return false;
@@ -314,16 +271,16 @@ public class InfluxDbIO {
     }
 
     @Override
-    public BoundedSource<String> getCurrentSource() {
+    public BoundedSource<T> getCurrentSource() {
       return source;
     }
 
     @Override
-    public String getCurrent() throws NoSuchElementException {
+    public T getCurrent() throws NoSuchElementException {
       if (current == null) {
         throw new NoSuchElementException();
       }
-      return current.toString();
+      return current;
     }
 
     @Override
@@ -347,7 +304,7 @@ public class InfluxDbIO {
 
   /** Write data to InfluxDB. */
   public static Write write() {
-    return new AutoValue_InfluxDbIO_Write.Builder().build();
+    return new AutoValue_InfluxDbIO_Write.Builder().setBatchSize(1024).build();
   }
 
   /**
