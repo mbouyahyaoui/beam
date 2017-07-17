@@ -16,20 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.beam.runners.mapreduce;
-
-import java.io.Serializable;
-
-import org.apache.beam.sdk.options.Description;
-import org.apache.beam.sdk.options.PipelineOptions;
-
 /**
- * Options that configure the MapReduce pipeline.
+ * Implementation of the Beam runner for Apache Hadoop MapReduce.
  */
-public interface MapReducePipelineOptions extends PipelineOptions, Serializable {
-
-  @Description("set job name for MapReduce runner")
-  void setApplicationName(String name);
-
-
-}
+package org.apache.beam.runners.mapreduce;

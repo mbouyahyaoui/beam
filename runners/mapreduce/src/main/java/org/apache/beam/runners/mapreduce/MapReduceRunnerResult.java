@@ -17,23 +17,69 @@
  */
 package org.apache.beam.runners.mapreduce;
 
-import com.google.cloud.dataflow.sdk.PipelineResult;
-import com.google.cloud.dataflow.sdk.runners.AggregatorRetrievalException;
-import com.google.cloud.dataflow.sdk.runners.AggregatorValues;
-import com.google.cloud.dataflow.sdk.transforms.Aggregator;
+import java.io.IOException;
+
+import org.apache.beam.sdk.PipelineResult;
+import org.apache.beam.sdk.metrics.MetricResults;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.jobcontrol.ControlledJob;
+import org.joda.time.Duration;
 
 public class MapReduceRunnerResult implements PipelineResult {
 
+  private final Job job;
+  private State state = State.UNKNOWN;
+
+  public MapReduceRunnerResult(Job job) {
+    this.job = job;
+  }
+
   @Override
   public State getState() {
-    return null;
+    try {
+      ControlledJob.State currentState = job.getJobState():
+      if (currentState == ControlledJob.State.FAILED
+          || currentState == ControlledJob.State.DEPENDENT_FAILED) {
+        state = State.FAILED;
+      }
+      if (currentState == ControlledJob.State.RUNNING) {
+        state = State.RUNNING;
+      }
+      if (currentState == ControlledJob.State.SUCCESS) {
+        state = State.DONE;
+      }
+    } catch (Exception e) {
+      // nothing to do
+    }
+    return state;
   }
 
   @Override
-  public <T> AggregatorValues<T> getAggregatorValues(Aggregator<?, T> aggregator)
-      throws AggregatorRetrievalException {
-    // TODO use aggregators map
-    return null;
+  public State cancel() throws IOException {
+    job.killJob();
+    state = State.CANCELLED;
+    return state;
   }
 
+  // TODO add timeout support on execution/duration
+  @Override
+  public State waitUntilFinish(Duration duration) {
+    try {
+      job.waitForCompletion(true);
+    } catch (Exception e) {
+      // nothing to do
+    }
+    state = State.DONE;
+    return state;
+  }
+
+  @Override
+  public State waitUntilFinish() {
+    return waitUntilFinish(Duration.ZERO);
+  }
+
+  @Override
+  public MetricResults metrics() {
+    return null;
+  }
 }

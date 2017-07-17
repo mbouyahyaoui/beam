@@ -16,20 +16,19 @@
  * limitations under the License.
  */
 
-package org.apache.beam.runners.mapreduce;
+package org.apache.beam.runners.mapreduce.translation;
 
-import java.io.Serializable;
-
-import org.apache.beam.sdk.options.Description;
-import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.runners.mapreduce.MapReducePipelineOptions;
 
 /**
- * Options that configure the MapReduce pipeline.
+ * Keep translation data for {@link MapReducePipelineTranslator}s.
  */
-public interface MapReducePipelineOptions extends PipelineOptions, Serializable {
+public class TranslationContext {
 
-  @Description("set job name for MapReduce runner")
-  void setApplicationName(String name);
+  private final MapReducePipelineOptions options;
 
+  public TranslationContext(MapReducePipelineOptions options) {
+    this.options = options;
+  }
 
 }
